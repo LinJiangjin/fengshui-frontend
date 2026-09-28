@@ -1,0 +1,54 @@
+name: fengshui_home
+description: 风水 × 装修 App · Flutter 端（MVP：定坐向 -> 出报告）
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 网络请求
+  http: ^1.2.2
+
+  # 罗盘（磁力计 + 陀螺仪）
+  # 若暂时不需要真机传感器，可移除本依赖并把
+  # CompassServiceFactory.create() 改为返回 ManualCompassService()
+  flutter_compass: ^0.8.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  # ---------------------------------------------------------------------
+  # 精确还原设计稿字体：把字体文件放到 assets/fonts/ 后取消注释即可。
+  # 未配置时 Flutter 会回退系统字体，布局 / 间距 / 配色不受影响。
+  # ---------------------------------------------------------------------
+  # fonts:
+  #   - family: Noto Serif SC
+  #     fonts:
+  #       - asset: assets/fonts/NotoSerifSC-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/NotoSerifSC-SemiBold.ttf
+  #         weight: 600
+  #   - family: Noto Sans SC
+  #     fonts:
+  #       - asset: assets/fonts/NotoSansSC-Regular.ttf
+  #         weight: 400
+  #       - asset: assets/fonts/NotoSansSC-Medium.ttf
+  #         weight: 500
+  #   - family: Inter
+  #     fonts:
+  #       - asset: assets/fonts/Inter-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/Inter-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/Inter-Bold.ttf
+  #         weight: 700
