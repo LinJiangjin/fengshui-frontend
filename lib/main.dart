@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'models/diagnosis.dart';
 import 'pages/bazi_page.dart';
@@ -14,17 +13,11 @@ import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_tab_bar.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 透明状态栏（edge-to-edge），内容通过 DesignCanvas 让出状态栏高度
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.light,
-    ),
-  );
+  // 注意：Dart 侧不要再调用 SystemChrome 设置系统栏样式/模式——
+  // PlatformPlugin 会重置系统 UI 标志，导致原生 edge-to-edge 失效。
+  // 系统栏（透明 + 深色图标）由 MainActivity 原生控制。
   runApp(const FengShuiApp());
 }
 

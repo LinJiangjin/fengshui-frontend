@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 Flutter AppColors.bg 一致的宣纸底色 -->
+    <color name="app_bg">#F5F1E8</color>
+</resources>
