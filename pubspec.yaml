@@ -18,6 +18,7 @@ dependencies:
   # 若暂时不需要真机传感器，可移除本依赖并把
   # CompassServiceFactory.create() 改为返回 ManualCompassService()
   flutter_compass: ^0.8.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

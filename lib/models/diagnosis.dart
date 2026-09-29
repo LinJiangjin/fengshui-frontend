@@ -137,6 +137,61 @@ class Advice {
       );
 }
 
+/// 当日紫白盘（日家九宫飞星）：今日吉位 / 今日忌方随日期变化
+class DailyChart {
+  DailyChart({
+    required this.date,
+    required this.dayPillar,
+    required this.solarTermRange,
+    required this.escape,
+    required this.escapeDesc,
+    required this.boundary,
+    required this.yuan,
+    required this.centerStar,
+    required this.centerStarName,
+    required this.palaces,
+    required this.best,
+    required this.worst,
+  });
+
+  final String date;          // 2026-09-29
+  final String dayPillar;     // 日柱：丙午
+  final String solarTermRange;// 秋分后 · 寒露前
+  final String escape;        // 阳遁 / 阴遁
+  final String escapeDesc;    // 冬至后顺行 / 夏至后逆行
+  final String boundary;      // 本段起算的交节日
+  final String yuan;          // 上元 / 中元 / 下元
+  final int centerStar;       // 入中星 1-9
+  final String centerStarName;// 三碧
+  final List<Palace> palaces;
+  final Extreme best;
+  final Extreme worst;
+
+  factory DailyChart.fromJson(Map<String, dynamic> j) => DailyChart(
+        date: j['date'] ?? '',
+        dayPillar: j['day_pillar'] ?? '',
+        solarTermRange: j['solar_term_range'] ?? '',
+        escape: j['escape'] ?? '',
+        escapeDesc: j['escape_desc'] ?? '',
+        boundary: j['boundary'] ?? '',
+        yuan: j['yuan'] ?? '',
+        centerStar: j['center_star'] ?? 0,
+        centerStarName: j['center_star_name'] ?? '',
+        palaces: (j['palaces'] as List? ?? [])
+            .map((e) => Palace.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        best: Extreme.fromJson(j['best'] ?? {}),
+        worst: Extreme.fromJson(j['worst'] ?? {}),
+      );
+
+  /// 例：三碧入中 · 丙午日
+  String get summary => '$centerStarName入中 · $dayPillar日';
+
+  /// 例：阴遁上元 · 夏至后逆行
+  String get escapeSummary =>
+      escapeDesc.isEmpty ? '$escape$yuan' : '$escape$yuan · $escapeDesc';
+}
+
 class Diagnosis {
   Diagnosis({
     required this.score,
@@ -149,6 +204,7 @@ class Diagnosis {
     required this.year,
     required this.houseName,
     required this.area,
+    this.daily,
   });
 
   final int score;
@@ -161,6 +217,15 @@ class Diagnosis {
   final int year;
   final String houseName;
   final double area;
+
+  /// 当日紫白盘（后端按测算日期算出；为空时首页回退到流年盘）
+  final DailyChart? daily;
+
+  /// 今日吉位：优先取日盘，没有日盘时退回流年盘
+  Extreme get todayBest => daily?.best ?? best;
+
+  /// 今日忌方：优先取日盘，没有日盘时退回流年盘
+  Extreme get todayWorst => daily?.worst ?? worst;
 
   factory Diagnosis.fromJson(Map<String, dynamic> j) {
     final ex = j['extremes'] as Map<String, dynamic>? ?? {};
@@ -181,6 +246,9 @@ class Diagnosis {
       year: j['year'] ?? DateTime.now().year,
       houseName: j['house_name'] ?? '我的房屋',
       area: (j['area'] as num?)?.toDouble() ?? 0,
+      daily: j['daily'] is Map<String, dynamic>
+          ? DailyChart.fromJson(j['daily'] as Map<String, dynamic>)
+          : null,
     );
   }
 

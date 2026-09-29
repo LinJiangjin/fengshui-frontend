@@ -56,7 +56,31 @@ const String kMockDiagnoseJson = '''
     ],
     "year": 2026,
     "house_name": "朗诗国际 3室2厅",
-    "area": 96.0
+    "area": 96.0,
+    "daily": {
+      "date": "2026-09-29",
+      "day_pillar": "丙午",
+      "solar_term_range": "秋分后 · 寒露前",
+      "escape": "阴遁",
+      "escape_desc": "夏至后逆行",
+      "boundary": "2026-06-21",
+      "yuan": "上元",
+      "center_star": 3,
+      "center_star_name": "三碧",
+      "palaces": [
+        {"trigram":"太极","direction":"中宫","star":3,"star_name":"三碧","element":"木","level":"平","label":"防口舌","note":"主争执，宜用红色系泄其木气。","is_center":true},
+        {"trigram":"乾","direction":"西北","star":4,"star_name":"四绿","element":"木","level":"旺","label":"利学业","note":"文昌位，宜设书桌、摆放绿植。","is_center":false},
+        {"trigram":"兑","direction":"正西","star":5,"star_name":"五黄","element":"土","level":"大凶","label":"大凶 · 宜静","note":"五黄大煞，忌动土安床，宜用铜器化煞。","is_center":false},
+        {"trigram":"艮","direction":"东北","star":6,"star_name":"六白","element":"金","level":"旺","label":"利贵人","note":"主官贵，宜保持明亮整洁，可置金属摆件。","is_center":false},
+        {"trigram":"离","direction":"正南","star":7,"star_name":"七赤","element":"金","level":"煞","label":"防破财","note":"主破财盗贼，忌放贵重物品，宜用水泄之。","is_center":false},
+        {"trigram":"坎","direction":"正北","star":8,"star_name":"八白","element":"土","level":"旺","label":"旺财位","note":"当旺财星，宜保持明亮，可置水晶、聚宝盆。","is_center":false},
+        {"trigram":"坤","direction":"西南","star":9,"star_name":"九紫","element":"火","level":"旺","label":"喜庆位","note":"主喜庆姻缘，宜用暖光与红色点缀。","is_center":false},
+        {"trigram":"震","direction":"正东","star":1,"star_name":"一白","element":"水","level":"旺","label":"利文昌","note":"主文昌、桃花，宜设书房或水景。","is_center":false},
+        {"trigram":"巽","direction":"东南","star":2,"star_name":"二黑","element":"土","level":"煞","label":"防病符","note":"病符星，忌作卧室与厨房，宜静不宜动。","is_center":false}
+      ],
+      "best": {"title":"正北 · 旺财位","direction":"正北","star_name":"八白","level":"旺","note":"当旺财星，宜保持明亮，可置水晶、聚宝盆。"},
+      "worst": {"title":"正西 · 五黄","direction":"正西","star_name":"五黄","level":"大凶","note":"五黄大煞，忌动土安床，宜用铜器化煞。"}
+    }
   }
 }
 ''';
@@ -117,9 +141,11 @@ class ApiClient {
     int year = 2026,
     String houseName = '我的房屋',
     double area = 96.0,
+    DateTime? date,
   }) async {
     if (kUseMockData) return _mock();
 
+    final d = date ?? DateTime.now();
     final uri = Uri.parse('$baseUrl/api/v1/diagnose');
     final res = await http
         .post(
@@ -131,6 +157,9 @@ class ApiClient {
             'year': year,
             'house_name': houseName,
             'area': area,
+            // 日家紫白按测算当日推算，今日吉位 / 今日忌方随日期变化
+            'month': d.month,
+            'day': d.day,
           }),
         )
         .timeout(const Duration(seconds: 8));

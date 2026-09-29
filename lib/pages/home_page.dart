@@ -12,21 +12,29 @@ class HomePage extends StatelessWidget {
     super.key,
     required this.diagnosis,
     required this.onQuickAction,
+    required this.onOpenHouses,
+    this.updatedAt,
+    this.onRefresh,
   });
 
   final Diagnosis diagnosis;
   final ValueChanged<int> onQuickAction;
+  final VoidCallback onOpenHouses;
+
+  /// 下拉手动刷新（重新请求后端，拿当日最新日盘）
+  final Future<void> Function()? onRefresh;
+
+  /// 最近一次算出的时间（用于卡片右上角的更新文案）
+  final DateTime? updatedAt;
 
   @override
   Widget build(BuildContext context) {
     final d = diagnosis;
-    return Column(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(
-              AppDimens.pagePadH, 0, AppDimens.pagePadH, 104),
-            child: Column(
+    final scroll = SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+          AppDimens.pagePadH, 0, AppDimens.pagePadH, 104),
+      child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _header(d),
@@ -34,18 +42,44 @@ class HomePage extends StatelessWidget {
                 _scoreCard(d),
                 const SizedBox(height: AppDimens.gapM),
                 _luckRow(d),
+                if (d.daily != null) ...[
+                  const SizedBox(height: AppDimens.gapS),
+                  _dailyCaption(d.daily!),
+                ],
                 const SizedBox(height: AppDimens.gapM),
                 const Text('快速测算', style: AppText.section),
                 const SizedBox(height: AppDimens.gapM),
                 _quickActions(),
                 const SizedBox(height: AppDimens.gapM),
-                const Text('我的房屋', style: AppText.section),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text('我的房屋', style: AppText.section),
+                    GestureDetector(
+                      onTap: onOpenHouses,
+                      child: Text('切换 / 管理',
+                          style: AppText.medium12.copyWith(
+                              color: AppColors.primary)),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: AppDimens.gapM),
                 _houseCard(d),
                 const SizedBox(height: AppDimens.gapM),
                 _adviceCard(d),
-              ],
-            ),
+        ],
+      ),
+    );
+    if (onRefresh == null) {
+      return Column(children: [Expanded(child: scroll)]);
+    }
+    return Column(
+      children: [
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: onRefresh!,
+            child: scroll,
           ),
         ),
       ],
@@ -53,6 +87,19 @@ class HomePage extends StatelessWidget {
   }
 
   // ---------------------------------------------------------------- 页头
+  /// 更新文案：精确到分钟，让刷新可见（如「今日 14:32 更新」）
+  String get _updateText {
+    final t = updatedAt;
+    if (t == null) return '今日已更新';
+    final now = DateTime.now();
+    final hhmm =
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    if (t.year == now.year && t.month == now.month && t.day == now.day) {
+      return '今日 $hhmm 更新';
+    }
+    return '${t.month}月${t.day}日 $hhmm 更新';
+  }
+
   /// 公历日期文案：2026年9月27日 周日
   String get _dateText {
     final now = DateTime.now();
@@ -132,7 +179,7 @@ class HomePage extends StatelessWidget {
                   color: Colors.white.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text('今日已更新',
+                child: Text(_updateText,
                     style: AppText.medium11.copyWith(color: Colors.white)),
               ),
             ],
@@ -219,16 +266,19 @@ class HomePage extends StatelessWidget {
   }
 
   // ------------------------------------------------------- 吉凶双卡
+  /// 吉位 / 忌方取当日紫白盘（日家九宫飞星），每天都会变
   Widget _luckRow(Diagnosis d) {
+    final best = d.todayBest;
+    final worst = d.todayWorst;
     return Row(
       children: [
         Expanded(
           child: _luckCard(
             label: '今日吉位',
-            value: d.best.title.contains('·')
-                ? d.best.title
-                : '${d.best.direction} · ${d.best.level}',
-            desc: d.best.note,
+            value: best.title.contains('·')
+                ? best.title
+                : '${best.direction} · ${best.level}',
+            desc: best.note,
             color: AppColors.primary,
           ),
         ),
@@ -236,10 +286,35 @@ class HomePage extends StatelessWidget {
         Expanded(
           child: _luckCard(
             label: '今日忌方',
-            value: d.worst.title,
-            desc: d.worst.note,
+            value: worst.title,
+            desc: worst.note,
             color: AppColors.danger,
             showWarn: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 当日星曜说明：三碧入中 · 丙午日 · 阴遁上元
+  Widget _dailyCaption(DailyChart c) {
+    final parts = <String>[
+      c.summary,
+      if (c.escape.isNotEmpty) c.escapeSummary,
+      if (c.solarTermRange.isNotEmpty) c.solarTermRange,
+    ];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 1),
+          child: AppIcon(AppIconKind.spark, size: 14, color: AppColors.gold),
+        ),
+        const SizedBox(width: AppDimens.gapXS),
+        Expanded(
+          child: Text(
+            '今日日星：${parts.join(' · ')}',
+            style: AppText.label11,
           ),
         ),
       ],
@@ -317,41 +392,56 @@ class HomePage extends StatelessWidget {
 
   // ------------------------------------------------------- 房屋卡
   Widget _houseCard(Diagnosis d) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: appCard(radius: AppDimens.rL),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: const LinearGradient(
-                begin: Alignment(-0.7, -0.7),
-                end: Alignment(0.7, 1.0),
-                colors: [Color(0xFFC7AD78), Color(0xFF6B8C80)],
+    final areaText = d.area > 0
+        ? '${d.area.toStringAsFixed(d.area.truncateToDouble() == d.area ? 0 : 1)}㎡'
+        : '';
+    return GestureDetector(
+      onTap: onOpenHouses,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: appCard(radius: AppDimens.rL),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                gradient: const LinearGradient(
+                  begin: Alignment(-0.7, -0.7),
+                  end: Alignment(0.7, 1.0),
+                  colors: [Color(0xFFC7AD78), Color(0xFF6B8C80)],
+                ),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                d.houseName.isNotEmpty ? d.houseName.substring(0, 1) : '宅',
+                style: AppText.value17.copyWith(color: Colors.white),
               ),
             ),
-          ),
-          const SizedBox(width: AppDimens.gapL),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(d.houseName, style: AppText.medium15),
-                const SizedBox(height: 5),
-                Text(
-                  '${d.orientation.readable} · ${d.orientation.title}',
-                  style: AppText.label12,
-                ),
-              ],
+            const SizedBox(width: AppDimens.gapL),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(d.houseName, style: AppText.medium15),
+                  const SizedBox(height: 5),
+                  Text(
+                    [
+                      d.orientation.readable,
+                      d.orientation.title,
+                      if (areaText.isNotEmpty) areaText,
+                    ].join(' · '),
+                    style: AppText.label12,
+                  ),
+                ],
+              ),
             ),
-          ),
-          const AppIcon(AppIconKind.chevronRight,
-              size: 20, color: AppColors.muted),
-        ],
+            const AppIcon(AppIconKind.chevronRight,
+                size: 20, color: AppColors.muted),
+          ],
+        ),
       ),
     );
   }

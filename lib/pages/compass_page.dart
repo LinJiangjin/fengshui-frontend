@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/diagnosis.dart';
+import '../models/house.dart';
 import '../models/orientation_calc.dart';
 import '../services/compass_service.dart';
 import '../theme/app_colors.dart';
@@ -11,20 +12,24 @@ import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
 import '../widgets/compass_dial.dart';
 
-/// 当地磁偏角（真北 = 磁北 + 偏角）。
-/// 生产环境建议按经纬度查表，MVP 先用固定值。
-const double kDefaultDeclination = -5.2;
-
 /// S2 · 罗盘定向
 class CompassPage extends StatefulWidget {
   const CompassPage({
     super.key,
     required this.service,
     required this.onConfirm,
+    this.initialDegree = 358.0,
+    this.declination = kDefaultDeclination,
   });
 
   final CompassService service;
   final Future<Diagnosis> Function(double degree, double declination) onConfirm;
+
+  /// 当前房屋的坐向读数（磁北），切换房屋后作为罗盘初始值
+  final double initialDegree;
+
+  /// 当前房屋的磁偏角（真北 = 磁北 + 偏角）
+  final double declination;
 
   @override
   State<CompassPage> createState() => _CompassPageState();
@@ -33,7 +38,7 @@ class CompassPage extends StatefulWidget {
 class _CompassPageState extends State<CompassPage> {
   StreamSubscription<double>? _sub;
   Timer? _silentTimer;
-  double _heading = 358.0;
+  late double _heading;
   bool _loading = false;
   bool _manual = false; // 用户手动输入后不再被传感器/演示流覆盖
   bool _demo = false; // 当前是否为演示扫描（传感器无数据）
@@ -41,7 +46,21 @@ class _CompassPageState extends State<CompassPage> {
   @override
   void initState() {
     super.initState();
+    _heading = Angle.normalize(widget.initialDegree);
     _subscribe();
+  }
+
+  @override
+  void didUpdateWidget(covariant CompassPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 切换房屋后，用新房屋的坐向 / 磁偏角重置罗盘
+    if (oldWidget.initialDegree != widget.initialDegree ||
+        oldWidget.declination != widget.declination) {
+      _manual = false;
+      _demo = false;
+      _heading = Angle.normalize(widget.initialDegree);
+      _subscribe();
+    }
   }
 
   /// 订阅传感器；若 2 秒内没有任何读数（桌面 / 模拟器 / 未授权 Web），
@@ -79,7 +98,7 @@ class _CompassPageState extends State<CompassPage> {
     super.dispose();
   }
 
-  double get _trueNorth => Angle.normalize(_heading + kDefaultDeclination);
+  double get _trueNorth => Angle.normalize(_heading + widget.declination);
 
   /// 当前坐向（随罗盘实时换算）
   OrientationResult get _orientation => OrientationCalc.of(_trueNorth);
@@ -87,7 +106,7 @@ class _CompassPageState extends State<CompassPage> {
   Future<void> _confirm() async {
     setState(() => _loading = true);
     try {
-      await widget.onConfirm(_heading, kDefaultDeclination);
+      await widget.onConfirm(_heading, widget.declination);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -128,7 +147,7 @@ class _CompassPageState extends State<CompassPage> {
     setState(() {
       _manual = true;
       _demo = false;
-      _heading = Angle.normalize(value - kDefaultDeclination);
+      _heading = Angle.normalize(value - widget.declination);
     });
   }
 
@@ -218,7 +237,7 @@ class _CompassPageState extends State<CompassPage> {
           const SizedBox(height: 14),
           _infoRow(
             '本地磁偏角',
-            '${kDefaultDeclination.toStringAsFixed(1)}°（已自动校正）',
+            '${widget.declination.toStringAsFixed(1)}°（已自动校正）',
           ),
           const SizedBox(height: 14),
           _infoRow('测量精度', _accuracyText()),
