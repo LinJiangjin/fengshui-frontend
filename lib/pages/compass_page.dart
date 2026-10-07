@@ -18,7 +18,7 @@ class CompassPage extends StatefulWidget {
     super.key,
     required this.service,
     required this.onConfirm,
-    this.initialDegree = 358.0,
+    this.initialDegree = 0.0,
     this.declination = kDefaultDeclination,
   });
 
@@ -40,8 +40,8 @@ class _CompassPageState extends State<CompassPage> {
   Timer? _silentTimer;
   late double _heading;
   bool _loading = false;
-  bool _manual = false; // 用户手动输入后不再被传感器/演示流覆盖
-  bool _demo = false; // 当前是否为演示扫描（传感器无数据）
+  bool _manual = false; // 用户手动输入后不再被传感器流覆盖
+  bool _unavailable = false; // 传感器无读数：不编造角度，引导手动输入
 
   @override
   void initState() {
@@ -57,19 +57,19 @@ class _CompassPageState extends State<CompassPage> {
     if (oldWidget.initialDegree != widget.initialDegree ||
         oldWidget.declination != widget.declination) {
       _manual = false;
-      _demo = false;
+      _unavailable = false;
       _heading = Angle.normalize(widget.initialDegree);
       _subscribe();
     }
   }
 
-  /// 订阅传感器；若 2 秒内没有任何读数（桌面 / 模拟器 / 未授权 Web），
-  /// 自动切到匀速扫描的演示罗盘，保证坐向文案随度数变化。
+  /// 订阅传感器；若 2 秒内没有任何读数（无磁力计 / 未授权），
+  /// 标记为不可用并引导手动输入，不再自动生成扫描中的假读数。
   void _subscribe() {
     _sub?.cancel();
     _silentTimer?.cancel();
     _manual = false;
-    _demo = false;
+    _unavailable = false;
     var received = false;
     _sub = widget.service.heading.listen((v) {
       received = true;
@@ -78,17 +78,13 @@ class _CompassPageState extends State<CompassPage> {
     });
     _silentTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted || received || _manual) return;
-      _startDemo();
+      _markUnavailable();
     });
   }
 
-  void _startDemo() {
+  void _markUnavailable() {
     _sub?.cancel();
-    _sub = DemoCompassService(start: _heading).heading.listen((v) {
-      if (!mounted) return;
-      setState(() => _heading = v);
-    });
-    if (mounted) setState(() => _demo = true);
+    if (mounted) setState(() => _unavailable = true);
   }
 
   @override
@@ -146,7 +142,7 @@ class _CompassPageState extends State<CompassPage> {
     _silentTimer?.cancel();
     setState(() {
       _manual = true;
-      _demo = false;
+      _unavailable = false;
       _heading = Angle.normalize(value - widget.declination);
     });
   }
@@ -248,7 +244,7 @@ class _CompassPageState extends State<CompassPage> {
 
   String _accuracyText() {
     if (_manual) return '手动输入（${_trueNorth.toStringAsFixed(0)}°）';
-    if (_demo) return '演示扫描（未获取到传感器数据）';
+    if (_unavailable) return '未获取到传感器数据，请手动输入';
     return widget.service.available ? '高（陀螺仪 + GPS）' : '手动模式（无磁力计）';
   }
 

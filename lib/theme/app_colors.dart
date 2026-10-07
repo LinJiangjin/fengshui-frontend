@@ -80,7 +80,8 @@ class AppColors {
       case '大凶':
         return dangerStrongBg;
       default:
-        return primarySoftBg;
+        // 等级缺失/未知：用中性色，不要乐观地当成吉位
+        return const Color(0xFFEFE9DE);
     }
   }
 
@@ -95,7 +96,7 @@ class AppColors {
       case '大凶':
         return dangerDeep;
       default:
-        return primary;
+        return muted;
     }
   }
 

@@ -107,6 +107,16 @@ class HomePage extends StatelessWidget {
     return '${now.year}年${now.month}月${now.day}日 ${weeks[now.weekday - 1]}';
   }
 
+  /// 问候语按时段变化，不再写死某个用户名
+  String get _greeting {
+    final h = DateTime.now().hour;
+    if (h < 6) return '夜深了';
+    if (h < 11) return '早安';
+    if (h < 14) return '午安';
+    if (h < 18) return '下午好';
+    return '晚上好';
+  }
+
   Widget _header(Diagnosis d) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -115,10 +125,11 @@ class HomePage extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('早安，明之先生', style: AppText.greeting),
+            Text(_greeting, style: AppText.greeting),
             const SizedBox(height: 4),
             Text(
-              '$_dateText · 今日宜：安床 纳财',
+              // 今日吉位来自后端日盘，不再写死「宜：安床 纳财」
+              '$_dateText · 今日${d.todayBest.roleName}：${d.todayBest.direction}',
               style: AppText.label12,
             ),
           ],
@@ -217,10 +228,15 @@ class HomePage extends StatelessWidget {
           const SizedBox(height: AppDimens.gapM),
           Container(height: 1, color: Colors.white.withValues(alpha: 0.14)),
           const SizedBox(height: AppDimens.gapM),
-          // 三项指标
+          // 三项指标：统一列高、标题顶部对齐、描述固定两行
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: d.metrics.map(_metric).toList(),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (int i = 0; i < d.metrics.length; i++) ...[
+                Expanded(child: _metric(d.metrics[i])),
+                if (i != d.metrics.length - 1) const SizedBox(width: 12),
+              ],
+            ],
           ),
         ],
       ),
@@ -228,37 +244,49 @@ class HomePage extends StatelessWidget {
   }
 
   Widget _metric(Metric m) {
-    return Expanded(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: AppColors.gradeDot(m.grade),
-                  borderRadius: BorderRadius.circular(3),
+          // 标题行固定高度，三列顶部严格对齐
+          SizedBox(
+            height: 20,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: AppColors.gradeDot(m.grade),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  m.value,
-                  style: AppText.medium13.copyWith(color: Colors.white),
-                  overflow: TextOverflow.ellipsis,
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    m.value,
+                    style: AppText.medium13.copyWith(color: Colors.white),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 6),
-          Text(
-            m.desc,
-            style: AppText.label11.copyWith(
-              color: Colors.white.withValues(alpha: 0.55),
+          // 描述固定两行高度，行数不同时底部仍对齐
+          SizedBox(
+            height: 34,
+            child: Text(
+              m.desc,
+              style: AppText.label11.copyWith(
+                color: Colors.white.withValues(alpha: 0.55),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 2,
           ),
         ],
       ),

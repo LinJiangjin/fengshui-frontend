@@ -31,7 +31,10 @@ class Palace {
         star: j['star'] ?? 0,
         starName: j['star_name'] ?? '',
         element: j['element'] ?? '',
-        level: j['level'] ?? '旺',
+        // 等级缺失时标记为未知，不要乐观地当成「旺」
+        level: (j['level'] as String?)?.isNotEmpty == true
+            ? j['level'] as String
+            : '未知',
         label: j['label'] ?? '',
         note: j['note'] ?? '',
         isCenter: j['is_center'] ?? false,
@@ -55,6 +58,8 @@ class OrientationInfo {
     required this.houseType,
     required this.readable,
     required this.description,
+    this.sittingDirection = '',
+    this.facingDirection = '',
   });
 
   final double degree;
@@ -67,6 +72,30 @@ class OrientationInfo {
   final String readable;   // 坐北朝南
   final String description;
 
+  /// 后端给出的坐山 / 向方所在方位（可能为空，见同名 getter 的兜底推导）
+  final String sittingDirection;
+  final String facingDirection;
+
+  /// 二十四山 -> 方位，用于后端未返回方位字段时兜底
+  static const Map<String, String> _mountainDirection = {
+    '壬': '正北', '子': '正北', '癸': '正北',
+    '丑': '东北', '艮': '东北', '寅': '东北',
+    '甲': '正东', '卯': '正东', '乙': '正东',
+    '辰': '东南', '巽': '东南', '巳': '东南',
+    '丙': '正南', '午': '正南', '丁': '正南',
+    '未': '西南', '坤': '西南', '申': '西南',
+    '庚': '正西', '酉': '正西', '辛': '正西',
+    '戌': '西北', '乾': '西北', '亥': '西北',
+  };
+
+  /// 坐山方位，如「正北」
+  String get sitting =>
+      sittingDirection.isNotEmpty ? sittingDirection : _mountainDirection[mountain] ?? '';
+
+  /// 向方方位，如「正南」
+  String get facingDir =>
+      facingDirection.isNotEmpty ? facingDirection : _mountainDirection[facing] ?? '';
+
   factory OrientationInfo.fromJson(Map<String, dynamic> j) => OrientationInfo(
         degree: (j['degree'] as num?)?.toDouble() ?? 0,
         declination: (j['declination'] as num?)?.toDouble() ?? 0,
@@ -77,6 +106,8 @@ class OrientationInfo {
         houseType: j['house_type'] ?? '',
         readable: j['readable'] ?? '',
         description: j['description'] ?? '',
+        sittingDirection: j['direction'] ?? '',
+        facingDirection: j['facing_direction'] ?? '',
       );
 
   /// 卦位副标，如「子山午向 · 坎宅」
@@ -90,13 +121,24 @@ class Extreme {
     required this.starName,
     required this.level,
     required this.note,
-  });
+    String? label,
+    String? role,
+  })  : label = label ?? '',
+        role = role ?? '';
 
   final String title;      // 正东 · 旺财位
   final String direction;
   final String starName;
   final String level;
   final String note;
+  final String label;
+  /// 角色名由后端下发（财位 / 五黄煞 / 病符位 / 破财位 …），
+  /// 前端不得自行把最佳一律叫「财位」、最凶一律叫「五黄」。
+  final String role;
+
+  /// 展示用的角色名：优先后端角色，其次 label，最后才是星名
+  String get roleName =>
+      role.isNotEmpty ? role : (label.isNotEmpty ? label : starName);
 
   factory Extreme.fromJson(Map<String, dynamic> j) => Extreme(
         title: j['title'] ?? '',
@@ -104,6 +146,8 @@ class Extreme {
         starName: j['star_name'] ?? '',
         level: j['level'] ?? '',
         note: j['note'] ?? '',
+        label: j['label'] ?? '',
+        role: j['role'] ?? '',
       );
 }
 
@@ -121,6 +165,21 @@ class Metric {
       );
 
   String get value => '$name · $grade';
+}
+
+/// 功能区布局建议表的一行（由后端按户型生成，前端不再自行推算）
+class LayoutGuideRow {
+  LayoutGuideRow({required this.type, required this.good, required this.bad});
+
+  final String type; // 客厅 / 主卧 / 厨房 ...
+  final String good; // 宜置方位
+  final String bad;  // 忌置方位
+
+  factory LayoutGuideRow.fromJson(Map<String, dynamic> j) => LayoutGuideRow(
+        type: j['type'] ?? '',
+        good: j['good'] ?? '',
+        bad: j['bad'] ?? '',
+      );
 }
 
 class Advice {
@@ -152,7 +211,8 @@ class DailyChart {
     required this.palaces,
     required this.best,
     required this.worst,
-  });
+    bool? calendarExact,
+  }) : calendarExact = calendarExact ?? true;
 
   final String date;          // 2026-09-29
   final String dayPillar;     // 日柱：丙午
@@ -166,6 +226,9 @@ class DailyChart {
   final List<Palace> palaces;
   final Extreme best;
   final Extreme worst;
+
+  /// 节气是否取自真实历法；false 表示用了近似交节日，交节当天可能差一天
+  final bool calendarExact;
 
   factory DailyChart.fromJson(Map<String, dynamic> j) => DailyChart(
         date: j['date'] ?? '',
@@ -182,6 +245,7 @@ class DailyChart {
             .toList(),
         best: Extreme.fromJson(j['best'] ?? {}),
         worst: Extreme.fromJson(j['worst'] ?? {}),
+        calendarExact: j['calendar_exact'] ?? true,
       );
 
   /// 例：三碧入中 · 丙午日
@@ -205,7 +269,11 @@ class Diagnosis {
     required this.houseName,
     required this.area,
     this.daily,
-  });
+    List<Advice>? tips,
+    List<LayoutGuideRow>? layoutGuide,
+    this.ruleVersion = '',
+  })  : tips = tips ?? const [],
+        layoutGuide = layoutGuide ?? const [];
 
   final int score;
   final OrientationInfo orientation;
@@ -220,6 +288,15 @@ class Diagnosis {
 
   /// 当日紫白盘（后端按测算日期算出；为空时首页回退到流年盘）
   final DailyChart? daily;
+
+  /// 后端下发的家具摆放建议（按坐向 + 当日吉凶动态生成）
+  final List<Advice> tips;
+
+  /// 后端按户型下发的功能区布局建议表
+  final List<LayoutGuideRow> layoutGuide;
+
+  /// 本次结果所采用的规则集版本
+  final String ruleVersion;
 
   /// 今日吉位：优先取日盘，没有日盘时退回流年盘
   Extreme get todayBest => daily?.best ?? best;
@@ -249,6 +326,13 @@ class Diagnosis {
       daily: j['daily'] is Map<String, dynamic>
           ? DailyChart.fromJson(j['daily'] as Map<String, dynamic>)
           : null,
+      tips: (j['tips'] as List? ?? [])
+          .map((e) => Advice.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      layoutGuide: (j['layout_guide'] as List? ?? [])
+          .map((e) => LayoutGuideRow.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      ruleVersion: j['rules_version'] ?? '',
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/diagnosis.dart';
+import '../models/palace_grid.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
@@ -73,6 +74,11 @@ class ReportPage extends StatelessWidget {
   // ------------------------------------------------------- 九宫飞星卡
   Widget _palaceCard() {
     final d = diagnosis;
+    final cells = PalaceGrid.build(
+      d.palaces,
+      facing: d.orientation.facingDir,
+      rotate: true,
+    );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -93,20 +99,30 @@ class ReportPage extends StatelessWidget {
                   style: AppText.label11),
             ],
           ),
-          const SizedBox(height: AppDimens.gapL),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: d.orderedPalaces.map(_palaceCell).toList(),
+          const SizedBox(height: AppDimens.gapS),
+          _viewInfo(),
+          const SizedBox(height: AppDimens.gapM),
+          // 3×3 等宽等高，间距统一
+          GridView.count(
+            crossAxisCount: 3,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 1,
+            children: [
+              for (var i = 0; i < cells.length; i++) _palaceCell(cells[i]),
+            ],
           ),
-          const SizedBox(height: AppDimens.gapL),
-          Row(
+          const SizedBox(height: AppDimens.gapM),
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
             children: [
               _legend('旺位', AppColors.primary),
-              const SizedBox(width: 16),
               _legend('平位', AppColors.gold),
-              const SizedBox(width: 16),
               _legend('煞位', AppColors.danger),
+              _legend('大凶', AppColors.dangerDeep),
             ],
           ),
         ],
@@ -114,8 +130,37 @@ class ReportPage extends StatelessWidget {
     );
   }
 
+  /// 视角说明：九宫盘按坐向旋转，向方朝上
+  Widget _viewInfo() {
+    final facing = diagnosis.orientation.facingDir;
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '按坐向',
+            style: AppText.medium11.copyWith(
+              color: Colors.white,
+              fontSize: 10,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (facing.isNotEmpty)
+          Expanded(
+            child: Text('向方 $facing 朝上', style: AppText.label11),
+          ),
+      ],
+    );
+  }
+
   Widget _legend(String text, Color color) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 6,
@@ -128,44 +173,84 @@ class ReportPage extends StatelessWidget {
     );
   }
 
-  Widget _palaceCell(Palace p) {
+  Widget _palaceCell(Palace? p) {
+    if (p == null) return const SizedBox.shrink();
+    final o = diagnosis.orientation;
+    final isFacing = !p.isCenter && p.direction == o.facingDir;
+    final isSitting = !p.isCenter && p.direction == o.sitting;
+    final mark = isFacing
+        ? AppColors.gold
+        : (isSitting ? AppColors.primary : null);
     final fg = AppColors.palaceFg(p.level);
-    final border = AppColors.palaceBorder(p.level);
+
     return Container(
-      width: 102,
-      height: 102,
       decoration: BoxDecoration(
         color: AppColors.palaceBg(p.level),
         borderRadius: BorderRadius.circular(AppDimens.rS),
-        border: border != null
-            ? Border.all(color: border, width: 1)
-            : (p.isCenter
-                ? Border.all(color: AppColors.primarySoftBorder, width: 1)
-                : null),
+        border: Border.all(
+          color: mark ??
+              AppColors.palaceBorder(p.level) ??
+              (p.isCenter ? AppColors.primarySoftBorder : AppColors.cardBorder),
+          width: mark != null ? 1.6 : 1,
+        ),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Stack(
         children: [
-          Text(
-            p.title,
-            style: AppText.label11.copyWith(
-              color: p.level == '大凶' ? const Color(0xFF8A5443) : AppColors.body,
-              fontSize: 10,
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  p.title,
+                  style: AppText.label11.copyWith(
+                    color: p.level == '大凶'
+                        ? const Color(0xFF8A5443)
+                        : AppColors.body,
+                    fontSize: 10,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  p.starName,
+                  style: AppText.value17.copyWith(color: fg, fontSize: 15),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  p.element,
+                  style: AppText.label11.copyWith(
+                    color: fg.withValues(alpha: 0.7),
+                    fontSize: 10,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  p.label,
+                  style: AppText.medium11.copyWith(color: fg, fontSize: 10),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            p.starTitle,
-            style: AppText.value17.copyWith(
-              color: fg,
-              fontSize: 15,
+          if (mark != null)
+            Positioned(
+              top: 5,
+              right: 5,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: mark,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  isFacing ? '向' : '坐',
+                  style: AppText.medium11.copyWith(
+                    color: Colors.white,
+                    fontSize: 9,
+                  ),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            p.label,
-            style: AppText.medium11.copyWith(color: fg, fontSize: 10),
-          ),
         ],
       ),
     );

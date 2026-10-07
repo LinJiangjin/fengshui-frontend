@@ -1,56 +1,125 @@
 import 'package:flutter/material.dart';
 
+import '../models/library.dart';
+import '../services/api_client.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
 
 /// S6 · 装修方案库
-class LibraryPage extends StatelessWidget {
+///
+/// 方案与配色全部由后端 /api/v1/library 下发：
+/// 「本月五行配色」由服务端按当前月份推算，页面内不再有写死的内容。
+class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
 
-  static const _filters = ['全部', '新中式', '日式侘寂', '现代原木'];
+  @override
+  State<LibraryPage> createState() => _LibraryPageState();
+}
 
-  static const _schemes = [
-    ('新中式 · 水墨禅意', '五行属木 · 96㎡', Color(0xFFD9D3C4), Color(0xFF7C6B52)),
-    ('日式侘寂 · 素白原木', '五行属土 · 88㎡', Color(0xFFE8E3D8), Color(0xFFA79C88)),
-    ('现代原木 · 自然光宅', '五行属木 · 110㎡', Color(0xFFE4DCCB), Color(0xFFC0A97E)),
-    ('轻奢东方 · 墨玉金线', '五行属金 · 128㎡', Color(0xFF2A3B35), Color(0xFFBE9351)),
-  ];
+class _LibraryPageState extends State<LibraryPage> {
+  final ApiClient _api = ApiClient();
 
-  static const _palette = [
-    ('墨玉', Color(0xFF24352F)),
-    ('松绿', Color(0xFF3F7A5E)),
-    ('宣纸', Color(0xFFF5F1E8)),
-    ('原木', Color(0xFFC9A57A)),
-    ('黄铜', Color(0xFFBE9351)),
-  ];
+  late Future<LibraryData> _future;
+  String _filter = '全部';
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _api.fetchLibrary();
+  }
+
+  void _retry() {
+    setState(() => _future = _api.fetchLibrary());
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(
-                AppDimens.pagePadH, 4, AppDimens.pagePadH, 120),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _header(),
-                const SizedBox(height: AppDimens.gapL),
-                _search(),
-                const SizedBox(height: AppDimens.gapL),
-                _chips(),
-                const SizedBox(height: AppDimens.gapL),
-                _grid(),
-                const SizedBox(height: AppDimens.gapL),
-                _paletteCard(),
-              ],
+    return FutureBuilder<LibraryData>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
+          );
+        }
+        if (!snap.hasData) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppDimens.pagePadH),
+              child: _errorView(snap.error?.toString() ?? '加载失败'),
+            ),
+          );
+        }
+        return _content(snap.data!);
+      },
+    );
+  }
+
+  Widget _errorView(String msg) {
+    return Container(
+      padding: const EdgeInsets.all(AppDimens.gapXL),
+      decoration: appCard(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off, size: 32, color: AppColors.muted),
+          const SizedBox(height: AppDimens.gapL),
+          const Text('方案库加载失败', style: AppText.cardTitle),
+          const SizedBox(height: AppDimens.gapXS),
+          Text(
+            msg,
+            textAlign: TextAlign.center,
+            style: AppText.body12,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: AppDimens.gapXL),
+          SizedBox(
+            height: 40,
+            child: OutlinedButton(
+              onPressed: _retry,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.primarySoftBorder),
+                backgroundColor: AppColors.primarySoft,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppDimens.rPill),
+                ),
+              ),
+              child: Text(
+                '重试',
+                style: AppText.medium13.copyWith(color: AppColors.primary),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  Widget _content(LibraryData data) {
+    final schemes = _filter == '全部'
+        ? data.schemes
+        : data.schemes.where((s) => s.tag == _filter).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+          AppDimens.pagePadH, 4, AppDimens.pagePadH, 120),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _header(),
+          const SizedBox(height: AppDimens.gapL),
+          _search(),
+          const SizedBox(height: AppDimens.gapL),
+          _chips(data.filters),
+          const SizedBox(height: AppDimens.gapL),
+          _grid(schemes),
+          const SizedBox(height: AppDimens.gapL),
+          _paletteCard(data.palette),
+        ],
+      ),
     );
   }
 
@@ -84,25 +153,28 @@ class LibraryPage extends StatelessWidget {
     );
   }
 
-  Widget _chips() {
+  Widget _chips(List<String> filters) {
     return Row(
-      children: List.generate(_filters.length, (i) {
-        final active = i == 0;
+      children: List.generate(filters.length, (i) {
+        final active = filters[i] == _filter;
         return Padding(
-          padding: EdgeInsets.only(right: i == _filters.length - 1 ? 0 : 8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: active ? AppColors.primary : AppColors.card,
-              borderRadius: BorderRadius.circular(16),
-              border: active
-                  ? null
-                  : Border.all(color: AppColors.cardBorder, width: 1),
-            ),
-            child: Text(
-              _filters[i],
-              style: AppText.medium12.copyWith(
-                color: active ? Colors.white : AppColors.body,
+          padding: EdgeInsets.only(right: i == filters.length - 1 ? 0 : 8),
+          child: GestureDetector(
+            onTap: () => setState(() => _filter = filters[i]),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: active ? AppColors.primary : AppColors.card,
+                borderRadius: BorderRadius.circular(16),
+                border: active
+                    ? null
+                    : Border.all(color: AppColors.cardBorder, width: 1),
+              ),
+              child: Text(
+                filters[i],
+                style: AppText.medium12.copyWith(
+                  color: active ? Colors.white : AppColors.body,
+                ),
               ),
             ),
           ),
@@ -111,11 +183,20 @@ class LibraryPage extends StatelessWidget {
     );
   }
 
-  Widget _grid() {
+  Widget _grid(List<LibraryScheme> schemes) {
+    if (schemes.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(AppDimens.gapXL),
+        decoration: appCard(),
+        child: const Center(
+          child: Text('该分类下暂无方案', style: AppText.body12),
+        ),
+      );
+    }
     return Wrap(
       spacing: 12,
       runSpacing: 12,
-      children: _schemes.map((s) {
+      children: schemes.map((s) {
         return SizedBox(
           width: 169,
           child: Column(
@@ -129,14 +210,14 @@ class LibraryPage extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [s.$3, s.$4],
+                    colors: [s.from, s.to],
                   ),
                 ),
               ),
               const SizedBox(height: 8),
-              Text(s.$1, style: AppText.cardTitle.copyWith(fontSize: 13)),
+              Text(s.title, style: AppText.cardTitle.copyWith(fontSize: 13)),
               const SizedBox(height: 4),
-              Text(s.$2, style: AppText.label11),
+              Text(s.subtitle, style: AppText.label11),
             ],
           ),
         );
@@ -144,29 +225,31 @@ class LibraryPage extends StatelessWidget {
     );
   }
 
-  Widget _paletteCard() {
+  Widget _paletteCard(LibraryPalette palette) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: appCard(radius: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('本月五行配色推荐', style: AppText.cardTitle),
-              Text('木火相生 · 宜暖调', style: AppText.label11),
+              Expanded(
+                child: Text(palette.title, style: AppText.cardTitle),
+              ),
+              Text(palette.subtitle, style: AppText.label11),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _palette.map((p) {
+            children: palette.colors.map((p) {
               return Container(
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  color: p.$2,
+                  color: p.color,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppColors.cardBorder, width: 1),
                 ),
@@ -174,7 +257,7 @@ class LibraryPage extends StatelessWidget {
             }).toList(),
           ),
           const SizedBox(height: 12),
-          const Text('墨玉 · 松绿 · 宣纸 · 原木 · 黄铜', style: AppText.label11),
+          Text(palette.names, style: AppText.label11),
         ],
       ),
     );

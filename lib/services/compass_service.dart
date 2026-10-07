@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 
 /// 罗盘数据源抽象。
@@ -32,9 +33,10 @@ class DeviceCompassService implements CompassService {
   bool get available => _events != null;
 }
 
-/// 手动 / 模拟罗盘：持续输出固定角度，界面与交互完全一致
+/// 手动罗盘：持续输出用户指定的角度，界面与交互完全一致。
+/// 角度必须由调用方给出，不再默认成某个写死的度数。
 class ManualCompassService implements CompassService {
-  ManualCompassService({this.fixedDegree = 358.0});
+  ManualCompassService({required this.fixedDegree});
 
   final double fixedDegree;
 
@@ -46,8 +48,10 @@ class ManualCompassService implements CompassService {
   bool get available => false;
 }
 
-/// 演示罗盘：无磁力计或传感器长时间无数据时，匀速扫描 0~360 度，
-/// 用于验证「度数 -> 二十四山 -> 坐X朝X」整条链路。
+/// 演示罗盘：仅用于调试阶段验证「度数 -> 二十四山 -> 坐X朝X」链路。
+///
+/// 它输出的是自动扫描的假读数，**不是测量结果**，
+/// 正式包（release）不会使用它，避免把演示读数当成真实坐向保存。
 class DemoCompassService implements CompassService {
   DemoCompassService({
     this.start = 0.0,
@@ -67,7 +71,17 @@ class DemoCompassService implements CompassService {
   bool get available => false;
 }
 
-/// 自动选择数据源：拿不到传感器流时退回演示罗盘
+/// 无可用传感器：不产生任何读数，由界面引导用户手动输入坐向，
+/// 而不是自动编一个数出来。
+class UnavailableCompassService implements CompassService {
+  @override
+  Stream<double> get heading => const Stream<double>.empty();
+
+  @override
+  bool get available => false;
+}
+
+/// 自动选择数据源：拿不到传感器流时，调试包退回演示罗盘，正式包直接标记不可用
 class CompassServiceFactory {
   static CompassService create() {
     try {
@@ -76,7 +90,8 @@ class CompassServiceFactory {
     } catch (_) {
       // 插件在该平台未实现时直接忽略
     }
-    return DemoCompassService(start: 358.0);
+    if (kDebugMode) return DemoCompassService();
+    return UnavailableCompassService();
   }
 }
 

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/house.dart';
 import '../models/orientation_calc.dart';
+import '../models/palace_grid.dart';
+import '../services/api_client.dart' show kApiBaseUrl;
 import '../services/house_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
@@ -67,6 +69,7 @@ class HousePage extends StatelessWidget {
   Widget _houseCard(BuildContext context, HouseProfile h) {
     final selected = store.isCurrent(h.id);
     final o = h.orientation;
+    final orientText = o == null ? '尚未测量坐向' : '${o.title} · ${o.readable}';
     return GestureDetector(
       onTap: () => store.select(h.id),
       child: Container(
@@ -103,12 +106,23 @@ class HousePage extends StatelessWidget {
                   Text(h.displayName, style: AppText.medium15),
                   const SizedBox(height: 4),
                   Text(
-                    '${h.areaText} · ${o.title} · ${o.readable}',
+                    '${h.areaText} · $orientText',
                     style: AppText.label12,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '真北 ${h.trueNorth.toStringAsFixed(0)}° · 磁偏角 ${h.declination.toStringAsFixed(1)}°',
+                    h.rooms.isEmpty
+                        ? '尚未录入房间'
+                        : '${h.rooms.length} 个房间 · ${h.rooms.map((r) => r.name).join('、')}',
+                    style: AppText.label11,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    h.measured
+                        ? '真北 ${h.trueNorth!.toStringAsFixed(0)}° · 磁偏角 ${h.declination.toStringAsFixed(1)}°'
+                        : '磁偏角 ${h.declination.toStringAsFixed(1)}° · 测量后自动写入坐向',
                     style: AppText.label11,
                   ),
                 ],
@@ -166,10 +180,22 @@ class HousePage extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: HouseFormSheet(house: house),
+        child: HouseFormSheet(
+          house: house,
+          onSave: (h) => store.upsert(h),
+        ),
       ),
     );
-    if (result != null) await store.upsert(result);
+    if (result == null || !context.mounted) return;
+    // 坐向由罗盘回写，没测过就提示下一步
+    if (!result.measured) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('已保存到服务端。到「罗盘」实测一次，坐向会自动写回这套房屋'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmDelete(BuildContext context, HouseProfile h) async {
@@ -191,15 +217,25 @@ class HousePage extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await store.remove(h.id);
+    if (ok != true) return;
+    try {
+      await store.remove(h.id);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text('删除失败：$e')));
+    }
   }
 }
 
 /// 房屋编辑表单（新增 / 修改共用）
 class HouseFormSheet extends StatefulWidget {
-  const HouseFormSheet({super.key, this.house});
+  const HouseFormSheet({super.key, this.house, this.onSave});
 
   final HouseProfile? house;
+
+  /// 保存动作（写服务端）。保存成功后表单才会关闭；失败时保留输入并提示。
+  final Future<void> Function(HouseProfile house)? onSave;
 
   @override
   State<HouseFormSheet> createState() => _HouseFormSheetState();
@@ -212,7 +248,13 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
   late final TextEditingController _degree;
   late final TextEditingController _declination;
 
+  /// 房间布局：房间名 + 所在宫位
+  late List<RoomProfile> _rooms;
+
   static const layouts = ['1室1厅', '2室1厅', '3室2厅', '4室2厅'];
+  static const _roomPresets = [
+    '客厅', '主卧', '次卧', '厨房', '卫生间', '书房', '餐厅', '阳台'
+  ];
 
   @override
   void initState() {
@@ -220,11 +262,14 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
     final h = widget.house;
     _name = TextEditingController(text: h?.name ?? '');
     _layout = TextEditingController(text: h?.layout ?? '');
-    _area = TextEditingController(text: h != null ? _num(h.area) : '96');
+    // 新建房屋一律留空，不预填任何示例值（面积 / 坐向 / 房间都要用户填）
+    _area = TextEditingController(text: h != null && h.area > 0 ? _num(h.area) : '');
+    // 已测过坐向才回填，未测量留空等罗盘写入
     _degree = TextEditingController(
-        text: h != null ? h.trueNorth.toStringAsFixed(0) : '352');
+        text: h != null && h.measured ? h.trueNorth!.toStringAsFixed(0) : '');
     _declination =
         TextEditingController(text: _num(h?.declination ?? kDefaultDeclination));
+    _rooms = List<RoomProfile>.of(h?.rooms ?? const <RoomProfile>[]);
   }
 
   @override
@@ -240,24 +285,26 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
   static String _num(double v) =>
       v.toStringAsFixed(v.truncateToDouble() == v ? 0 : 1);
 
-  double get _trueNorth => double.tryParse(_degree.text.trim()) ?? 0;
+  /// 真北度数；未填 / 未测量时为 null（坐向以罗盘实测为准，不做 0 度兜底）
+  double? get _trueNorth => double.tryParse(_degree.text.trim());
 
-  void _save() {
+  /// 是否正在保存（请求期间按钮置灰，防止重复提交）
+  bool _saving = false;
+
+  Future<void> _save() async {
+    if (_saving) return;
     final name = _name.text.trim();
     if (name.isEmpty) {
-      _toast('请填写房屋名称');
+      _showError('请填写房屋名称');
       return;
     }
     final area = double.tryParse(_area.text.trim());
     if (area == null || area <= 0) {
-      _toast('面积请填大于 0 的数字');
+      _showError('面积请填大于 0 的数字');
       return;
     }
+    // 坐向不手填：留空表示等罗盘实测后回写
     final degree = double.tryParse(_degree.text.trim());
-    if (degree == null) {
-      _toast('坐向请填 0 ~ 359 度');
-      return;
-    }
     final declination = double.tryParse(_declination.text.trim()) ?? kDefaultDeclination;
     final old = widget.house;
     final house = HouseProfile(
@@ -265,23 +312,259 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
       name: name,
       layout: _layout.text.trim(),
       area: area,
-      // 表单填的是真北度数，换算回磁北读数，后端统一做偏角校正
-      degree: degree - declination,
+      // 表单填的是真北度数，换算回磁北读数，后端统一做偏角校正；
+      // 未填则保持 null，等罗盘测量写入
+      degree: degree == null ? null : degree - declination,
       declination: declination,
       year: old?.year ?? DateTime.now().year,
+      rooms: _rooms,
     );
-    Navigator.of(context).pop(house);
+    final save = widget.onSave;
+    if (save == null) {
+      Navigator.of(context).pop(house);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await save(house);
+      if (!mounted) return;
+      Navigator.of(context).pop(house);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('保存失败：$e\n请确认后端服务已启动（API: $kApiBaseUrl）');
+    }
   }
 
-  void _toast(String msg) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+  // ------------------------------------------------------- 房间布局
+  /// 九宫点选：给房间定宫位，同一宫位可放多个房间
+  Widget _roomPicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('房间布局', style: AppText.label12),
+            Text('${_rooms.length} 个房间', style: AppText.label11),
+          ],
+        ),
+        const SizedBox(height: AppDimens.gapXS),
+        const Text('点击九宫格把房间放到对应方位', style: AppText.label11),
+        const SizedBox(height: AppDimens.gapS),
+        GridView.count(
+          crossAxisCount: 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 6,
+          crossAxisSpacing: 6,
+          childAspectRatio: 1.15,
+          children: [
+            for (var i = 0; i < PalaceGrid.fixedOrder.length; i++)
+              _roomCell(i),
+          ],
+        ),
+        if (_rooms.isNotEmpty) ...[
+          const SizedBox(height: AppDimens.gapS),
+          Wrap(
+            spacing: AppDimens.gapS,
+            runSpacing: AppDimens.gapXS,
+            children: [
+              for (final r in _rooms)
+                Container(
+                  padding: const EdgeInsets.only(left: 10, top: 4, bottom: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(AppDimens.rPill),
+                    border: Border.all(color: AppColors.primary, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${r.name}·${PalaceGrid.fixedOrder[r.cell]}',
+                        style: AppText.label12.copyWith(
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(
+                            () => _rooms.removeWhere((e) => e.id == r.id)),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6),
+                          child: Icon(Icons.close,
+                              size: 12, color: AppColors.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _roomCell(int index) {
+    final inCell = _rooms.where((r) => r.cell == index).toList();
+    return GestureDetector(
+      onTap: () => _addRoom(index),
+      child: Container(
+        decoration: BoxDecoration(
+          color: inCell.isEmpty ? AppColors.iconBg : AppColors.primarySoftBg,
+          borderRadius: BorderRadius.circular(AppDimens.rS),
+          border: Border.all(
+            color: inCell.isEmpty
+                ? AppColors.iconBorder
+                : AppColors.primary.withValues(alpha: 0.5),
+            width: 1,
+          ),
+        ),
+        padding: const EdgeInsets.all(4),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              PalaceGrid.fixedOrder[index],
+              style: AppText.label11.copyWith(
+                color: AppColors.muted,
+                fontSize: 9,
+              ),
+            ),
+            if (inCell.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              for (final r in inCell.take(2))
+                Text(
+                  r.name,
+                  style: AppText.medium11.copyWith(
+                    color: AppColors.primary,
+                    fontSize: 10,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ] else
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.add, size: 12, color: AppColors.muted),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addRoom(int cell) async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('在${PalaceGrid.fixedOrder[cell]}新增房间',
+            style: AppText.cardTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              style: AppText.medium13,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: AppColors.card,
+                hintText: '房间名称',
+                hintStyle: AppText.label12,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppDimens.rM),
+                  borderSide: const BorderSide(color: AppColors.cardBorder),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppDimens.rM),
+                  borderSide: const BorderSide(color: AppColors.cardBorder),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final p in _roomPresets)
+                  GestureDetector(
+                    onTap: () => Navigator.pop(ctx, p),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.iconBg,
+                        borderRadius:
+                            BorderRadius.circular(AppDimens.rPill),
+                        border:
+                            Border.all(color: AppColors.iconBorder, width: 1),
+                      ),
+                      child: Text(p, style: AppText.label12),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消', style: AppText.medium13),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(ctx, controller.text.trim().isEmpty
+                    ? null
+                    : controller.text.trim()),
+            child: const Text('添加', style: AppText.medium13),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    if (!mounted) return;
+    setState(() => _rooms.add(RoomProfile(
+          id: newRoomId(),
+          name: name,
+          cell: cell,
+        )));
+  }
+
+  /// 表单内错误提示：直接显示在保存按钮上方，避免 SnackBar 被弹窗挡住看不见
+  String? _errorText;
+
+  void _showError(String msg) {
+    setState(() => _errorText = msg);
+  }
+
+  Widget _errorBanner() {
+    if (_errorText == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppDimens.gapL),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppDimens.rM),
+        border: Border.all(color: AppColors.danger, width: 1),
+      ),
+      child: Text(
+        _errorText!,
+        style: AppText.body12.copyWith(color: AppColors.danger),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final o = OrientationCalc.of(_trueNorth);
+    final tn = _trueNorth;
+    final o = tn == null ? null : OrientationCalc.of(tn);
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.bg,
@@ -321,7 +604,8 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
                 children: [
                   for (final l in layouts)
                     GestureDetector(
-                      onTap: () => setState(() => _layout.text = l),
+                      onTap: () =>
+                          setState(() { _layout.text = l; _errorText = null; }),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 5),
@@ -355,7 +639,7 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
                   Expanded(child: _field('建筑面积（㎡）', _area, '96', number: true)),
                   const SizedBox(width: AppDimens.gapL),
                   Expanded(
-                      child: _field('坐向（真北°）', _degree, '0 ~ 359',
+                      child: _field('坐向（真北°，可留空）', _degree, '测量后自动填入',
                           number: true)),
                 ],
               ),
@@ -376,7 +660,9 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
                     const SizedBox(width: AppDimens.gapS),
                     Expanded(
                       child: Text(
-                        '${_trueNorth.toStringAsFixed(0)}° → ${o.title} · ${o.readable} · ${o.houseType}',
+                        o == null
+                            ? '保存后到「罗盘」实测一次，坐向会自动写回这套房屋'
+                            : '${tn!.toStringAsFixed(0)}° → ${o.title} · ${o.readable} · ${o.houseType}',
                         style: AppText.body12,
                       ),
                     ),
@@ -384,8 +670,11 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
                 ),
               ),
               const SizedBox(height: AppDimens.gapXL),
+              _roomPicker(),
+              const SizedBox(height: AppDimens.gapXL),
+              _errorBanner(),
               GestureDetector(
-                onTap: _save,
+                onTap: _saving ? null : _save,
                 child: Container(
                   height: 52,
                   decoration: BoxDecoration(
@@ -394,10 +683,19 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
                     boxShadow: primaryShadow,
                   ),
                   alignment: Alignment.center,
-                  child: Text(
-                    widget.house == null ? '保存并使用' : '保存并重新测算',
-                    style: AppText.button15,
-                  ),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          widget.house == null ? '保存并使用' : '保存并重新测算',
+                          style: AppText.button15,
+                        ),
                 ),
               ),
               const SizedBox(height: AppDimens.gapM),
@@ -424,7 +722,7 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
           keyboardType: number
               ? const TextInputType.numberWithOptions(decimal: true, signed: true)
               : TextInputType.text,
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() => _errorText = null),
           style: AppText.medium13,
           decoration: InputDecoration(
             isDense: true,

@@ -195,8 +195,11 @@ class BaziBirth {
 
   factory BaziBirth.fromJson(Map<String, dynamic> j) => BaziBirth(
         name: j['name'] ?? '',
-        gender: j['gender'] ?? '男',
-        longitude: (j['longitude'] as num?)?.toDouble() ?? 120,
+        // 性别/经度缺失时标记为未知，不要把缺失数据伪装成「男 / 东经120°」
+        gender: (j['gender'] as String?)?.isNotEmpty == true
+            ? j['gender'] as String
+            : '未知',
+        longitude: (j['longitude'] as num?)?.toDouble() ?? 0,
         solar: j['solar'] ?? '',
         trueSolar: j['true_solar'] ?? '',
         offsetMinutes: (j['offset_minutes'] as num?)?.toDouble() ?? 0,
@@ -331,7 +334,18 @@ class BaziProfile {
   /// 八字四柱合写，如「戊辰 乙卯 丙寅 壬辰」
   String get pillarText => pillars.map((p) => p.pillar).join(' ');
 
-  /// 用神喜忌副标题，如「身偏强 · 抑强扶弱」
-  String get fortuneSubtitle =>
-      strength.level.isEmpty ? '依日主强弱定调候' : '${strength.level} · 抑强扶弱';
+  /// 用神喜忌副标题：按日主强弱给出对应的取用原则，
+  /// 不再对所有命局都写同一句「抑强扶弱」。
+  String get fortuneSubtitle {
+    switch (strength.level) {
+      case '偏强':
+        return '身偏强 · 宜泄宜克';
+      case '偏弱':
+        return '身偏弱 · 宜生宜帮';
+      case '中和':
+        return '身中和 · 调候通关';
+      default:
+        return '依日主强弱定调候';
+    }
+  }
 }

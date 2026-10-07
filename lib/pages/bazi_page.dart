@@ -9,71 +9,118 @@ import '../widgets/app_icons.dart';
 
 /// S4 · 命理档案
 ///
-/// 四柱、五行占比、用神喜忌全部来自后端确定性排盘引擎（/api/v1/bazi），
-/// 页面内不含任何硬编码命理数据。默认展示设计稿示例：1988-03-12 辰时 · 男。
+/// 四柱、五行占比、用神喜忌全部来自后端确定性排盘引擎（/api/v1/bazi）。
+/// 出生信息由用户录入，页面内没有任何写死的示例命盘；
+/// 未录入时展示录入表单，不会拿默认值冒充用户资料去排盘。
 class BaziPage extends StatefulWidget {
   const BaziPage({
     super.key,
-    this.year = 1988,
-    this.month = 3,
-    this.day = 12,
-    this.hour = 8,
-    this.minute = 0,
-    this.gender = '男',
-    this.longitude = 120.0,
-    this.name = '',
+    this.year,
+    this.month,
+    this.day,
+    this.hour,
+    this.minute,
+    this.gender,
+    this.longitude,
+    this.name,
   });
 
-  /// 出生年（公历）
-  final int year;
-  final int month;
-  final int day;
+  /// 出生年（公历）；为 null 表示尚未录入
+  final int? year;
+  final int? month;
+  final int? day;
 
   /// 出生时刻（北京时间 24 小时制）
-  final int hour;
-  final int minute;
+  final int? hour;
+  final int? minute;
 
   /// 男 / 女
-  final String gender;
+  final String? gender;
 
   /// 出生地东经度数，用于真太阳时校正
-  final double longitude;
+  final double? longitude;
 
   /// 姓名（可选）
-  final String name;
+  final String? name;
 
   @override
   State<BaziPage> createState() => _BaziPageState();
 }
 
+/// 一次排盘所需的出生信息
+class _BirthInput {
+  _BirthInput({
+    required this.date,
+    required this.time,
+    required this.gender,
+    required this.longitude,
+    this.name = '',
+  });
+
+  final DateTime date;
+  final TimeOfDay time;
+  final String gender;
+  final double longitude;
+  final String name;
+}
+
 class _BaziPageState extends State<BaziPage> {
   final ApiClient _api = ApiClient();
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _lngCtrl = TextEditingController();
 
   BaziProfile? _profile;
   String? _error;
-  bool _loading = true;
+  bool _loading = false;
+
+  /// 已录入的出生信息；为 null 时展示录入表单
+  _BirthInput? _input;
+
+  DateTime? _date;
+  TimeOfDay? _time;
+  String _gender = '男';
 
   @override
   void initState() {
     super.initState();
-    _load();
+    final w = widget;
+    // 只有外部传入了完整档案才直接排盘，否则等用户录入
+    if (w.year != null && w.month != null && w.day != null && w.hour != null) {
+      _input = _BirthInput(
+        date: DateTime(w.year!, w.month!, w.day!),
+        time: TimeOfDay(hour: w.hour!, minute: w.minute ?? 0),
+        gender: w.gender ?? '男',
+        longitude: w.longitude ?? 120.0,
+        name: w.name ?? '',
+      );
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _lngCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
+    final input = _input;
+    if (input == null) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final profile = await _api.fetchBazi(
-        year: widget.year,
-        month: widget.month,
-        day: widget.day,
-        hour: widget.hour,
-        minute: widget.minute,
-        gender: widget.gender,
-        longitude: widget.longitude,
-        name: widget.name,
+        year: input.date.year,
+        month: input.date.month,
+        day: input.date.day,
+        hour: input.time.hour,
+        minute: input.time.minute,
+        gender: input.gender,
+        longitude: input.longitude,
+        name: input.name,
       );
       if (!mounted) return;
       setState(() {
@@ -87,6 +134,49 @@ class _BaziPageState extends State<BaziPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date ?? DateTime(now.year - 30),
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _time ?? const TimeOfDay(hour: 8, minute: 0),
+    );
+    if (picked != null) setState(() => _time = picked);
+  }
+
+  void _submit() {
+    final lng = double.tryParse(_lngCtrl.text.trim());
+    if (_date == null || _time == null) {
+      setState(() => _error = '请先选择出生日期与时刻');
+      return;
+    }
+    if (lng == null || lng < 73 || lng > 135) {
+      setState(() => _error = '请填写出生地东经度数（73 ~ 135）');
+      return;
+    }
+    setState(() {
+      _error = null;
+      _input = _BirthInput(
+        date: _date!,
+        time: _time!,
+        gender: _gender,
+        longitude: lng,
+        name: _nameCtrl.text.trim(),
+      );
+      _profile = null;
+    });
+    _load();
   }
 
   @override
@@ -114,6 +204,9 @@ class _BaziPageState extends State<BaziPage> {
                     ],
                   ),
                 )
+              else if (_input == null)
+                // 尚未录入出生信息：展示录入表单，不展示任何示例命盘
+                _inputForm()
               else
                 Center(child: _statusView()),
               Positioned(
@@ -126,6 +219,154 @@ class _BaziPageState extends State<BaziPage> {
           ),
         ),
       ],
+    );
+  }
+
+  // ------------------------------------------------------- 出生信息录入
+  Widget _inputForm() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+          AppDimens.pagePadH, 4, AppDimens.pagePadH, 110),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _header(),
+          const SizedBox(height: AppDimens.gapL),
+          Container(
+            padding: const EdgeInsets.all(AppDimens.gapXL),
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(AppDimens.rXL),
+              border: Border.all(color: AppColors.cardBorder, width: 1),
+              boxShadow: cardShadow,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('录入出生信息', style: AppText.cardTitle),
+                const SizedBox(height: 6),
+                Text(
+                  '排盘需要公历出生时刻与出生地经度（用于真太阳时校正），不会用默认值代替。',
+                  style: AppText.body12.copyWith(color: AppColors.muted),
+                ),
+                const SizedBox(height: AppDimens.gapL),
+                _field(
+                  '出生日期',
+                  _date == null
+                      ? '请选择'
+                      : '${_date!.year}-${_date!.month.toString().padLeft(2, '0')}-${_date!.day.toString().padLeft(2, '0')}',
+                  _pickDate,
+                ),
+                const SizedBox(height: AppDimens.gapM),
+                _field(
+                  '出生时刻',
+                  _time == null ? '请选择' : _time!.format(context),
+                  _pickTime,
+                ),
+                const SizedBox(height: AppDimens.gapL),
+                const Text('性别', style: AppText.medium13),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _genderChip('男'),
+                    const SizedBox(width: AppDimens.gapM),
+                    _genderChip('女'),
+                  ],
+                ),
+                const SizedBox(height: AppDimens.gapL),
+                _textField('出生地东经度数（如北京 116.4）', _lngCtrl,
+                    TextInputType.number),
+                const SizedBox(height: AppDimens.gapM),
+                _textField('姓名（可选）', _nameCtrl, TextInputType.text),
+                if (_error != null) ...[
+                  const SizedBox(height: AppDimens.gapM),
+                  Text(
+                    _error!,
+                    style: AppText.body12.copyWith(color: AppColors.danger),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _field(String label, String value, VoidCallback onTap) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppText.medium13),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.iconBg,
+              borderRadius: BorderRadius.circular(AppDimens.rS),
+              border: Border.all(color: AppColors.cardBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(value, style: AppText.medium13.copyWith(color: AppColors.body)),
+                const Icon(Icons.chevron_right, size: 18, color: AppColors.muted),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _genderChip(String g) {
+    final on = _gender == g;
+    return GestureDetector(
+      onTap: () => setState(() => _gender = g),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        decoration: BoxDecoration(
+          color: on ? AppColors.primarySoft : AppColors.iconBg,
+          borderRadius: BorderRadius.circular(AppDimens.rPill),
+          border: Border.all(
+              color: on ? AppColors.primary : AppColors.cardBorder),
+        ),
+        child: Text(
+          g,
+          style: AppText.medium13
+              .copyWith(color: on ? AppColors.primary : AppColors.body),
+        ),
+      ),
+    );
+  }
+
+  Widget _textField(
+    String hint,
+    TextEditingController ctrl,
+    TextInputType type,
+  ) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: type,
+      style: AppText.medium13.copyWith(color: AppColors.body),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: AppText.body12.copyWith(color: AppColors.muted),
+        filled: true,
+        fillColor: AppColors.iconBg,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimens.rS),
+          borderSide: const BorderSide(color: AppColors.cardBorder),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimens.rS),
+          borderSide: const BorderSide(color: AppColors.cardBorder),
+        ),
+      ),
     );
   }
 
@@ -367,6 +608,7 @@ class _BaziPageState extends State<BaziPage> {
   }
 
   Widget _bottomBar() {
+    final hasProfile = _profile != null;
     return Container(
       height: AppDimens.bottomBarH,
       decoration: const BoxDecoration(
@@ -375,14 +617,32 @@ class _BaziPageState extends State<BaziPage> {
       ),
       padding: const EdgeInsets.fromLTRB(
           AppDimens.pagePadH, 14, AppDimens.pagePadH, 24),
-      child: Container(
-        height: 50,
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.circular(25),
+      child: GestureDetector(
+        onTap: () {
+          if (hasProfile) {
+            setState(() {
+              _profile = null;
+              _input = null;
+              _error = null;
+              _date = null;
+              _time = null;
+            });
+          } else {
+            _submit();
+          }
+        },
+        child: Container(
+          height: 50,
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(25),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            hasProfile ? '重新录入出生信息' : '开始排盘',
+            style: AppText.button14,
+          ),
         ),
-        alignment: Alignment.center,
-        child: const Text('按命理生成布局建议', style: AppText.button14),
       ),
     );
   }

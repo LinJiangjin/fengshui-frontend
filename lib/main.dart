@@ -64,6 +64,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   HouseStore? _store;
   Diagnosis? _diagnosis;
   String? _error;
+
+  /// 缺少诊断前置数据时的阻塞原因：
+  /// 'no_house'   尚未建档（不拿示例房屋顶替）
+  /// 'no_measure' 已建档但还没用罗盘测过坐向
+  /// null         数据齐全，可以正常请求后端
+  String? _blocker;
   DateTime? _updatedAt;
   int _tab = 0;
 
@@ -91,6 +97,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final store = await HouseStore.load();
     if (!mounted) return;
     _store = store;
+    // 旧版本存在本地的房屋一次性迁到服务端
+    await store.migrateLegacyIfAny();
+    if (!mounted) return;
     store.addListener(_onHouseChanged);
     _tickTimer ??= Timer.periodic(
       const Duration(seconds: 30),
@@ -143,16 +152,25 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  /// 当前房屋；仓库尚未就绪时回退到示例房屋
-  HouseProfile get _house => _store?.current ?? HouseProfile.seed();
+  /// 当前房屋；仓库尚未就绪或尚未建档时为 null，不用示例房屋顶替
+  HouseProfile? get _house => _store?.current;
 
   Future<Diagnosis> _runDiagnose({double? degree, double? declination}) {
     final h = _house;
+    if (h == null) {
+      throw Exception('请先在「我的房屋」里添加房屋');
+    }
+    final d = degree ?? h.degree;
+    if (d == null) {
+      // 坐向以罗盘实测为准，不做 0 度兜底
+      throw Exception('尚未测量坐向');
+    }
     return _api.diagnose(
-      degree: degree ?? h.degree,
+      degree: d,
       declination: declination ?? h.declination,
       year: h.year,
       houseName: h.displayName,
+      layout: h.layout,
       area: h.area,
     );
   }
@@ -160,7 +178,34 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   Future<void> _load({bool force = false}) async {
     if (_loading && !force) return; // 定时器与房屋变更可能同时触发，去重
     _loading = true;
-    setState(() => _error = null);
+    // 前置数据不全时不请求后端，避免把「没数据」显示成「连不上服务」
+    final h = _house;
+    if (h == null) {
+      // 拉列表失败要显示成网络错误，不能被当成「没有房屋」
+      final err = _store?.lastError;
+      if (mounted) {
+        setState(() {
+          _blocker = err == null ? 'no_house' : null;
+          _error = err;
+        });
+      }
+      _loading = false;
+      return;
+    }
+    if (!h.measured) {
+      if (mounted) {
+        setState(() {
+          _blocker = 'no_measure';
+          _error = null;
+        });
+      }
+      _loading = false;
+      return;
+    }
+    setState(() {
+      _blocker = null;
+      _error = null;
+    });
     try {
       final d = await _runDiagnose();
       if (!mounted) return;
@@ -181,10 +226,28 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 罗盘确认 -> 坐向写回当前房屋 -> 生成诊断报告
   Future<Diagnosis> _diagnoseFrom(double degree, double declination) async {
     final store = _store;
-    if (store != null) {
-      _autoReload = false;
+    if (store == null || store.current == null) {
+      // 测量结果要写回房屋档案，没有房屋就先建档
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('请先在「我的房屋」里添加房屋')),
+      );
+      throw Exception('请先在「我的房屋」里添加房屋');
+    }
+    _autoReload = false;
+    try {
       await store.setOrientation(degree, declination: declination);
+    } catch (e) {
+      // 写入失败也继续用本次测量值出报告，只是坐向没持久化
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text('坐向未能写入房屋档案：$e')),
+        );
+      }
+    } finally {
       _autoReload = true;
+    }
+    if (mounted) {
+      setState(() => _blocker = null);
     }
     final d = await _runDiagnose(degree: degree, declination: declination);
     if (!mounted) return d;
@@ -197,8 +260,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     await Navigator.of(context).push<void>(_page(ReportPage(
       diagnosis: d,
       onRemeasure: () => Navigator.of(context).pop(),
-      onViewLayout: () =>
-          Navigator.of(context).push<void>(_page(const LayoutPage())),
+      onViewLayout: () => Navigator.of(context)
+          .push<void>(_page(LayoutPage(
+            diagnosis: d,
+            house: _house,
+            onApplyRooms: _applyLayout,
+          ))),
     )));
     return d;
   }
@@ -221,6 +288,27 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     );
   }
 
+  /// 把布局页推荐的房间方位保存到当前房屋档案
+  Future<void> _applyLayout(List<RoomProfile> rooms) async {
+    final store = _store;
+    final house = _house;
+    if (store == null || house == null) return;
+    final updated = house.copyWith(rooms: rooms);
+    try {
+      await store.upsert(updated);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('布局方案保存失败：$e')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('已将该布局方案保存到当前房屋')),
+    );
+  }
+
   Future<void> _openHouses() async {
     final store = _store;
     if (store == null) return;
@@ -229,8 +317,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   Route<T> _page<T>(Widget child) {
     return MaterialPageRoute<T>(
-      builder: (_) => DesignCanvas(
-        child: ColoredBox(color: AppColors.bg, child: child),
+      builder: (_) => Scaffold(
+        backgroundColor: AppColors.bg,
+        body: DesignCanvas(
+          child: ColoredBox(color: AppColors.bg, child: child),
+        ),
       ),
     );
   }
@@ -238,32 +329,36 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final d = _diagnosis;
-    return DesignCanvas(
-      child: ColoredBox(
-        color: AppColors.bg,
-        child: Column(
-          children: [
-            Expanded(
-              child: IndexedStack(
-                index: _tab,
-                children: [
-                  d == null ? _statusPage() : _home(d),
-                  CompassPage(
-                    service: _compass,
-                    initialDegree: _house.degree,
-                    declination: _house.declination,
-                    onConfirm: _diagnoseFrom,
-                  ),
-                  const LibraryPage(),
-                  const BaziPage(),
-                ],
+    // 用 Scaffold 包裹，确保 TextField、Button 等 Material 组件能找到 ancestor
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: DesignCanvas(
+        child: ColoredBox(
+          color: AppColors.bg,
+          child: Column(
+            children: [
+              Expanded(
+                child: IndexedStack(
+                  index: _tab,
+                  children: [
+                    d == null ? _statusPage() : _home(d),
+                    CompassPage(
+                      service: _compass,
+                      initialDegree: _house?.degree ?? 0,
+                      declination: _house?.declination ?? kDefaultDeclination,
+                      onConfirm: _diagnoseFrom,
+                    ),
+                    const LibraryPage(),
+                    const BaziPage(),
+                  ],
+                ),
               ),
-            ),
-            AppTabBar(
-              current: _tab,
-              onTap: (i) => setState(() => _tab = i),
-            ),
-          ],
+              AppTabBar(
+                current: _tab,
+                onTap: (i) => setState(() => _tab = i),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -289,13 +384,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               Navigator.of(context).push<void>(_page(ReportPage(
                 diagnosis: _diagnosis!,
                 onRemeasure: () => Navigator.of(context).pop(),
-                onViewLayout: () =>
-                    Navigator.of(context).push<void>(_page(const LayoutPage())),
+                onViewLayout: () => Navigator.of(context).push<void>(
+                    _page(LayoutPage(
+                      diagnosis: _diagnosis,
+                      house: _house,
+                      onApplyRooms: _applyLayout,
+                    ))),
               )));
             }
             break;
           case 3:
-            Navigator.of(context).push<void>(_page(const LayoutPage()));
+            Navigator.of(context).push<void>(
+                _page(LayoutPage(
+                diagnosis: _diagnosis,
+                house: _house,
+                onApplyRooms: _applyLayout,
+              )));
             break;
         }
       },
@@ -303,29 +407,60 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   Widget _statusPage() {
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.cloud_off, size: 40, color: AppColors.muted),
-              const SizedBox(height: 16),
-              Text(
-                '无法连接后端服务\n$_error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: AppColors.body),
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton(onPressed: _load, child: const Text('重试')),
-            ],
-          ),
-        ),
+    final blocker = _blocker;
+    final err = _error;
+    // 缺数据 / 出错都走同一套占位样式，内容按状态区分
+    final IconData icon;
+    final String title;
+    final String btnText;
+    final VoidCallback onTap;
+
+    if (blocker == 'no_house') {
+      icon = Icons.home_outlined;
+      title = '尚未建立房屋档案\n请先在「我的房屋」里添加房屋';
+      btnText = '去添加房屋';
+      onTap = _openHouses;
+    } else if (blocker == 'no_measure') {
+      icon = Icons.explore_outlined;
+      title = '尚未测量坐向\n请用罗盘实测一次，坐向会自动写入当前房屋';
+      btnText = '去测量';
+      onTap = () => setState(() => _tab = 1);
+    } else if (err != null) {
+      icon = Icons.cloud_off;
+      title = '无法连接后端服务\n$err';
+      btnText = '重试';
+      onTap = _load;
+    } else {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
-    return const Center(
-      child: CircularProgressIndicator(color: AppColors.primary),
+
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 40, color: AppColors.muted),
+                  const SizedBox(height: 16),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13, color: AppColors.body),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton(onPressed: onTap, child: Text(btnText)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
