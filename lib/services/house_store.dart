@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/house.dart';
 import 'api_client.dart';
+import 'auth_store.dart';
 import 'compass_service.dart';
 
 /// 房屋仓库：管理多套房屋档案 + 当前选中的房屋。
@@ -64,6 +65,7 @@ class HouseStore extends ChangeNotifier {
       _houses = await _api.fetchHouses();
       _lastError = null;
     } catch (e) {
+      _handleAuthError(e);
       _houses = <HouseProfile>[];
       _lastError = e.toString();
     }
@@ -71,6 +73,13 @@ class HouseStore extends ChangeNotifier {
       _currentId = _houses.isEmpty ? '' : _houses.first.id;
     }
     notifyListeners();
+  }
+
+  /// token 失效时全局登出，AuthGate 监听后自动切回登录页
+  void _handleAuthError(Object e) {
+    if (e is ApiException && e.isUnauthorized) {
+      AuthStore.instance?.forceLogout();
+    }
   }
 
   /// 切换当前房屋（只是本地偏好，不改动房屋数据）
@@ -83,7 +92,13 @@ class HouseStore extends ChangeNotifier {
 
   /// 新增或保存房屋，并把它设为当前房屋（写服务端）
   Future<void> upsert(HouseProfile house) async {
-    final saved = await _api.saveHouse(house);
+    HouseProfile saved;
+    try {
+      saved = await _api.saveHouse(house);
+    } catch (e) {
+      _handleAuthError(e);
+      rethrow;
+    }
     final i = _houses.indexWhere((h) => h.id == saved.id);
     if (i >= 0) {
       _houses[i] = saved;
@@ -97,7 +112,12 @@ class HouseStore extends ChangeNotifier {
 
   /// 删除房屋
   Future<void> remove(String id) async {
-    await _api.deleteHouse(id);
+    try {
+      await _api.deleteHouse(id);
+    } catch (e) {
+      _handleAuthError(e);
+      rethrow;
+    }
     _houses.removeWhere((h) => h.id == id);
     if (_currentId == id) {
       _currentId = _houses.isEmpty ? '' : _houses.first.id;
@@ -110,11 +130,17 @@ class HouseStore extends ChangeNotifier {
   Future<void> setOrientation(double degree, {double? declination}) async {
     final i = _houses.indexWhere((h) => h.id == _currentId);
     if (i < 0) return;
-    final updated = await _api.patchHouse(
-      _currentId,
-      degree: Angle.normalize(degree),
-      declination: declination,
-    );
+    HouseProfile updated;
+    try {
+      updated = await _api.patchHouse(
+        _currentId,
+        degree: Angle.normalize(degree),
+        declination: declination,
+      );
+    } catch (e) {
+      _handleAuthError(e);
+      rethrow;
+    }
     _houses[i] = updated;
     notifyListeners();
   }

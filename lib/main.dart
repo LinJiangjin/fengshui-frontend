@@ -10,8 +10,10 @@ import 'pages/home_page.dart';
 import 'pages/house_page.dart';
 import 'pages/layout_page.dart';
 import 'pages/library_page.dart';
+import 'pages/login_page.dart';
 import 'pages/report_page.dart';
 import 'services/api_client.dart';
+import 'services/auth_store.dart';
 import 'services/compass_service.dart';
 import 'services/house_store.dart';
 import 'theme/app_colors.dart';
@@ -44,20 +46,82 @@ class FengShuiApp extends StatelessWidget {
           background: AppColors.bg,
         ),
       ),
-      home: const AppShell(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+/// 登录闸门：启动时恢复 token -> 校验 -> 未登录进登录页，已登录进主界面。
+/// AuthStore 是全局唯一的登录态源，任何 401 触发 forceLogout 后自动回到登录页。
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  AuthStore? _auth;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final store = await AuthStore.load();
+    AuthStore.instance = store;
+    if (!mounted) return;
+    store.addListener(_onAuthChanged);
+    setState(() => _auth = store);
+  }
+
+  void _onAuthChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _auth?.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = _auth;
+    // 闪屏：token 校验是网络请求，不能转圈太久也不能卡死
+    if (auth == null || !auth.booted) {
+      return const Scaffold(
+        backgroundColor: AppColors.bg,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+    if (!auth.isLoggedIn) {
+      return LoginPage(auth: auth);
+    }
+    // key 绑定用户 id：登录/换号时强制重建 AppShell，房屋数据重新拉取
+    return KeyedSubtree(
+      key: ValueKey('shell-${auth.user!.id}'),
+      child: AppShell(auth: auth),
     );
   }
 }
 
 /// 外壳：底部 Tab + 页面栈
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, required this.auth});
+
+  final AuthStore auth;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
+  AuthStore get _auth => widget.auth;
   final _api = ApiClient();
   final _compass = CompassServiceFactory.create();
 
@@ -216,6 +280,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       });
       _scheduleMidnightRefresh();
     } catch (e) {
+      // token 失效：全局登出，AuthGate 自动切回登录页
+      if (e is ApiException && e.isUnauthorized) {
+        await _auth.forceLogout();
+        return;
+      }
       if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
