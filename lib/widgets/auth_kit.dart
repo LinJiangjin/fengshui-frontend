@@ -292,11 +292,12 @@ bool isValidPhone(String v) => RegExp(r'^1[3-9]\d{9}$').hasMatch(v);
 /// 统一弹错误提示（透出后端 detail 的中文文案）
 void showAuthError(BuildContext context, Object e) {
   final msg = e is ApiException ? e.message : '网络异常，请稍后重试';
+  debugPrint('[Auth] error: $e, msg: $msg');
   ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     SnackBar(
       content: Text(msg),
       backgroundColor: AppColors.danger,
-      duration: const Duration(seconds: 2),
+      duration: const Duration(seconds: 3),
     ),
   );
 }

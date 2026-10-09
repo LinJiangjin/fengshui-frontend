@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/house.dart';
 import '../models/orientation_calc.dart';
 import '../models/palace_grid.dart';
-import '../services/api_client.dart' show kApiBaseUrl;
+import '../services/api_client.dart' show ApiException, kApiBaseUrl;
 import '../services/house_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
@@ -332,7 +332,10 @@ class _HouseFormSheetState extends State<HouseFormSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      _showError('保存失败：$e\n请确认后端服务已启动（API: $kApiBaseUrl）');
+      final tip = (e is ApiException && e.statusCode == 404)
+          ? '后端接口不存在（HTTP 404），请确认 127.0.0.1:8000 上启动的是本项目的 fengshui-api，并已加载 /api/v1/houses 路由'
+          : '请确认后端服务已启动（API: $kApiBaseUrl）';
+      _showError('保存失败：$e\n$tip');
     }
   }
 

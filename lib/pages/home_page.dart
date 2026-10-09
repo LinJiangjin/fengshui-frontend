@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/diagnosis.dart';
+import '../models/user.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
@@ -13,6 +14,8 @@ class HomePage extends StatelessWidget {
     required this.diagnosis,
     required this.onQuickAction,
     required this.onOpenHouses,
+    required this.onLogout,
+    this.user,
     this.updatedAt,
     this.onRefresh,
   });
@@ -20,6 +23,12 @@ class HomePage extends StatelessWidget {
   final Diagnosis diagnosis;
   final ValueChanged<int> onQuickAction;
   final VoidCallback onOpenHouses;
+
+  /// 退出登录：AuthStore.logout 后 AuthGate 自动切回登录页
+  final VoidCallback onLogout;
+
+  /// 当前登录用户；为 null 时账户面板只显示退出按钮
+  final AppUser? user;
 
   /// 下拉手动刷新（重新请求后端，拿当日最新日盘）
   final Future<void> Function()? onRefresh;
@@ -37,7 +46,7 @@ class HomePage extends StatelessWidget {
       child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _header(d),
+                _header(context, d),
                 const SizedBox(height: AppDimens.gapM),
                 _scoreCard(d),
                 const SizedBox(height: AppDimens.gapM),
@@ -117,7 +126,7 @@ class HomePage extends StatelessWidget {
     return '晚上好';
   }
 
-  Widget _header(Diagnosis d) {
+  Widget _header(BuildContext context, Diagnosis d) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -134,20 +143,127 @@ class HomePage extends StatelessWidget {
             ),
           ],
         ),
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppColors.card,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppColors.cardBorder, width: 1),
+        GestureDetector(
+          onTap: () => _openAccountSheet(context),
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: user != null ? AppColors.primarySoft : AppColors.card,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: user != null
+                    ? AppColors.primarySoftBorder
+                    : AppColors.cardBorder,
+                width: 1,
+              ),
+            ),
+            alignment: Alignment.center,
+            child: AppIcon(AppIconKind.user,
+                size: 24,
+                color: user != null ? AppColors.primary : AppColors.muted),
           ),
-          alignment: Alignment.center,
-          child: const AppIcon(AppIconKind.user,
-              size: 24, color: AppColors.muted),
         ),
       ],
     );
+  }
+
+  /// 账户面板：显示当前账号，并提供退出登录入口
+  Future<void> _openAccountSheet(BuildContext context) async {
+    final u = user;
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: AppColors.track,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: AppColors.primarySoftBorder),
+                    ),
+                    alignment: Alignment.center,
+                    child: const AppIcon(AppIconKind.user,
+                        size: 26, color: AppColors.primary),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          u == null || u.nickname.isEmpty
+                              ? '未设置昵称'
+                              : u.nickname,
+                          style: AppText.cardTitle,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          u?.phone ?? '未登录',
+                          style: AppText.label12,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(sheetContext).pop(true),
+                  icon: const Icon(Icons.logout, size: 18),
+                  label: Text('退出登录',
+                      style:
+                          AppText.medium15.copyWith(color: AppColors.danger)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.dangerBorder),
+                    backgroundColor: AppColors.dangerSoftBg,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 48,
+                child: TextButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(false),
+                  child: Text('取消',
+                      style: AppText.medium15.copyWith(color: AppColors.body)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+    onLogout();
   }
 
   // ------------------------------------------------------- 综合评分卡

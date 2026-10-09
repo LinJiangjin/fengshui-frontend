@@ -56,8 +56,11 @@ class _RegisterPageState extends State<RegisterPage> {
       return false;
     }
     try {
+      debugPrint('[Auth] send-code start: phone=${_phone.text.trim()}');
       final r = await ApiClient()
           .sendCode(_phone.text.trim(), scene: 'register');
+      debugPrint(
+          '[Auth] send-code ok: devMode=${r.isDevMode}, code=${r.debugCode}');
       if (!mounted) return false;
       if (r.isDevMode) {
         _code.text = r.debugCode!;
@@ -74,6 +77,7 @@ class _RegisterPageState extends State<RegisterPage> {
       }
       return true;
     } catch (e) {
+      debugPrint('[Auth] send-code failed: $e');
       if (mounted) showAuthError(context, e);
       return false;
     }
@@ -84,6 +88,8 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _submitting = true);
     try {
       final user = await widget.auth.login(_phone.text.trim(), _code.text.trim());
+      // 登录成功后会触发 AuthGate 跳主界面；若页面已被 dispose 就不再补资料
+      if (!mounted) return;
       // 已有昵称的说明是老用户，直接进 App；新号默认是「用户+尾号」才补填
       final nickname = _nickname.text.trim();
       if (nickname.isNotEmpty && user.nickname != nickname) {

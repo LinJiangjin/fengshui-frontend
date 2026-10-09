@@ -46,8 +46,12 @@ class AuthStore extends ChangeNotifier {
   /// 验证码登录（后端对新手机号自动注册，所以登录/注册共用此方法）。
   Future<AppUser> login(String phone, String code) async {
     final user = await ApiClient().login(phone, code);
-    await _prefs.setString(_kToken, kAuthToken ?? '');
     _user = user;
+    try {
+      await _prefs.setString(_kToken, kAuthToken ?? '');
+    } catch (e) {
+      debugPrint('[AuthStore] token 持久化失败: $e');
+    }
     notifyListeners();
     return user;
   }
@@ -76,6 +80,10 @@ class AuthStore extends ChangeNotifier {
   Future<void> _clearToken() async {
     kAuthToken = null;
     _user = null;
-    await _prefs.remove(_kToken);
+    try {
+      await _prefs.remove(_kToken);
+    } catch (e) {
+      debugPrint('[AuthStore] token 清除失败: $e');
+    }
   }
 }

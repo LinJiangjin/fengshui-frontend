@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:http/http.dart' as http;
 
 import '../models/bazi.dart';
@@ -245,6 +245,8 @@ class ApiClient {
   /// 发送短信验证码。console 开发模式下后端会回传 debug_code，可直接自动填入。
   Future<SendCodeResult> sendCode(String phone, {String scene = 'login'}) async {
     final uri = Uri.parse('$baseUrl/api/v1/auth/send-code');
+    debugPrint(
+        '[ApiClient] POST $uri body={"phone":"$phone","scene":"$scene"}');
     final res = await http
         .post(
           uri,
@@ -252,6 +254,7 @@ class ApiClient {
           body: jsonEncode({'phone': phone, 'scene': scene}),
         )
         .timeout(const Duration(seconds: 8));
+    debugPrint('[ApiClient] send-code status=${res.statusCode} body=${res.body}');
     final body = _errorBodyOrData(res, fallback: '验证码发送失败');
     return SendCodeResult(
       expiresIn: (body['expires_in'] ?? 300) as int,
@@ -263,6 +266,8 @@ class ApiClient {
   /// 验证码登录；手机号未注册时后端自动创建账号（注册 = 同一接口）。
   Future<AppUser> login(String phone, String code) async {
     final uri = Uri.parse('$baseUrl/api/v1/auth/login');
+    debugPrint(
+        '[ApiClient] POST $uri body={"phone":"$phone","code":"$code"}');
     final res = await http
         .post(
           uri,
@@ -270,6 +275,7 @@ class ApiClient {
           body: jsonEncode({'phone': phone, 'code': code}),
         )
         .timeout(const Duration(seconds: 8));
+    debugPrint('[ApiClient] login status=${res.statusCode} body=${res.body}');
     final body = _errorBodyOrData(res, fallback: '登录失败');
     kAuthToken = body['token'] as String?;
     return AppUser.fromJson(body['user'] as Map<String, dynamic>);

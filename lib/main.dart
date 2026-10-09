@@ -378,6 +378,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     );
   }
 
+  /// 退出登录：清 token 后 AuthStore 通知 AuthGate 自动切回登录页。
+  /// 这里不需要手动跳转，AppShell 会随 AuthGate 重建而销毁。
+  void _logout() {
+    _auth.logout();
+  }
+
   Future<void> _openHouses() async {
     final store = _store;
     if (store == null) return;
@@ -437,6 +443,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     return HomePage(
       diagnosis: d,
       updatedAt: _updatedAt,
+      user: _auth.user,
+      onLogout: _logout,
       onOpenHouses: _openHouses,
       onRefresh: _onRefresh,
       onQuickAction: (i) {
