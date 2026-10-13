@@ -5,9 +5,11 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:http/http.dart' as http;
 
 import '../models/bazi.dart';
+import '../models/bazi_record.dart';
 import '../models/diagnosis.dart';
 import '../models/house.dart';
 import '../models/library.dart';
+import '../models/ziwei.dart';
 import '../models/user.dart';
 
 /// 后端地址。
@@ -157,6 +159,88 @@ class ApiClient {
       throw Exception('排盘失败：${body['status']}');
     }
     return BaziProfile.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  /// 紫微斗数：排十二宫命盘，并给出感情 / 职业 / 运势解读。
+  /// 与排盘接口同样无状态、不落库，用同一份出生信息请求。
+  Future<ZiweiChart> fetchZiwei({
+    required int year,
+    required int month,
+    required int day,
+    required int hour,
+    required String gender,
+    required double longitude,
+    int minute = 0,
+    String name = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/ziwei');
+    final res = await http
+        .post(
+          uri,
+          headers: _headers,
+          body: jsonEncode({
+            'year': year,
+            'month': month,
+            'day': day,
+            'hour': hour,
+            'minute': minute,
+            'gender': gender,
+            'longitude': longitude,
+            'name': name,
+          }),
+        )
+        .timeout(const Duration(seconds: 8));
+
+    if (res.statusCode != 200) {
+      throw Exception('紫微排盘失败：HTTP ${res.statusCode}');
+    }
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (body['code'] != 0) {
+      throw Exception('紫微排盘失败：${body['status']}');
+    }
+    return ZiweiChart.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  // ------------------------------------------------------- 命理档案（落库）
+  /// 读取当前用户的命理档案；后端 data 为 null（还没录入过）时返回 null
+  Future<BaziRecord?> fetchBaziProfile() async {
+    final uri = Uri.parse('$baseUrl/api/v1/bazi/profile');
+    final res = await http.get(uri, headers: _headers).timeout(
+          const Duration(seconds: 8),
+        );
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '命理档案加载失败：HTTP ${res.statusCode}');
+    }
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (body['code'] != 0) {
+      throw ApiException('${body['status'] ?? '命理档案加载失败'}');
+    }
+    final data = body['data'];
+    // 还没录入过档案不是错误，交给页面展示录入表单
+    if (data == null) return null;
+    return BaziRecord.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// 保存 / 覆盖当前用户的命理档案，返回服务端落库后的数据
+  Future<BaziRecord> saveBaziProfile(BaziRecord record) async {
+    final uri = Uri.parse('$baseUrl/api/v1/bazi/profile');
+    final res = await http
+        .put(
+          uri,
+          headers: _headers,
+          body: jsonEncode(record.toJson()),
+        )
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '命理档案保存失败：HTTP ${res.statusCode}');
+    }
+    return BaziRecord.fromJson(_decode(res.body));
   }
 
   // ------------------------------------------------------- 房屋档案（落库）

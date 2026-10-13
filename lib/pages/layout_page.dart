@@ -68,7 +68,7 @@ class LayoutPage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _header(),
+                        _header(context),
                         const SizedBox(height: AppDimens.gapL),
                         _planCard(cells, rotated, rooms, d, h),
                         const SizedBox(height: AppDimens.gapL),
@@ -116,13 +116,27 @@ class LayoutPage extends StatelessWidget {
     );
   }
 
-  Widget _header() {
-    return const Row(
+  Widget _header(BuildContext context) {
+    return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        AppIcon(AppIconKind.back, size: 22, color: AppColors.ink),
-        Text('家具布局建议', style: AppText.pageTitle),
-        AppIcon(AppIconKind.heart, size: 20, color: AppColors.ink),
+        GestureDetector(
+          // 图标本体只有 22px，补一圈 padding 并声明 opaque，
+          // 否则点击热区过小、容易点空
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.maybePop(context),
+          child: const Padding(
+            padding: EdgeInsets.all(6),
+            child: AppIcon(AppIconKind.back, size: 22, color: AppColors.ink),
+          ),
+        ),
+        const Text('家具布局建议', style: AppText.pageTitle),
+        // 占位：与左侧返回图标等宽，保证标题居中
+        const Padding(
+          padding: EdgeInsets.all(6),
+          child: AppIcon(AppIconKind.heart, size: 20, color: AppColors.ink),
+        ),
       ],
     );
   }
