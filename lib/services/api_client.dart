@@ -4,10 +4,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:http/http.dart' as http;
 
+import '../models/almanac.dart';
 import '../models/bazi.dart';
 import '../models/bazi_record.dart';
+import '../models/bazhai.dart';
 import '../models/diagnosis.dart';
 import '../models/house.dart';
+import '../models/legal.dart';
 import '../models/library.dart';
 import '../models/ziwei.dart';
 import '../models/user.dart';
@@ -390,6 +393,176 @@ class ApiClient {
         .timeout(const Duration(seconds: 8));
     final body = _errorBodyOrData(res, fallback: '资料保存失败');
     return AppUser.fromJson(body);
+  }
+
+  /// 注销账号。不可恢复：后端会物理删除命理档案与房屋档案、清掉验证码记录，
+  /// 并把账号行匿名化，返回后旧 token 立即失效。
+  /// 调用方（AuthStore）负责在成功后清理本地登录态。
+  Future<void> deleteAccount() async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/delete-account');
+    final res = await http
+        .post(
+          uri,
+          headers: _headers,
+          body: jsonEncode({'confirm': true}),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode != 200) {
+      String detail = '注销失败，请稍后重试';
+      try {
+        final j = jsonDecode(res.body) as Map<String, dynamic>;
+        // FastAPI 的 HTTPException detail 就是给用户看的中文提示
+        detail = (j['detail'] ?? j['status'] ?? detail).toString();
+      } catch (_) {}
+      throw _httpError(res.statusCode, detail);
+    }
+  }
+
+  /// 拉取用户协议 / 隐私政策正文。条款由服务端下发，更新后无需发版。
+  Future<LegalDoc> fetchLegalDoc(String slug) async {
+    final uri = Uri.parse('$baseUrl/api/v1/legal/$slug');
+    final res = await http.get(uri).timeout(const Duration(seconds: 8));
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '文档加载失败：HTTP ${res.statusCode}');
+    }
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (body['code'] != 0) {
+      throw ApiException('${body['status'] ?? '文档加载失败'}');
+    }
+    return LegalDoc.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  /// 八宅游年：出生年 + 性别定命卦，坐向定宅卦，再出各宫吉凶与房间选位。
+  ///
+  /// [degree] 与 [trigram] 二者取一：传度数会顺带返回坐向明细（推荐），
+  /// 只知卦名时传 [trigram]。两者都不传后端会返回 400。
+  /// [month]/[day]/[hour]/[minute] 用于立春分界——命卦按立春换年，
+  /// 只传年份会把年初出生的人算错一年。
+  Future<BazhaiChart> fetchBazhai({
+    required int year,
+    required String gender,
+    int month = 0,
+    int day = 0,
+    int hour = 0,
+    int minute = 0,
+    double? degree,
+    double declination = 0,
+    String trigram = '',
+    String name = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/bazhai');
+    final payload = <String, dynamic>{
+      'year': year,
+      'gender': gender,
+      'month': month,
+      'day': day,
+      'hour': hour,
+      'minute': minute,
+      'declination': declination,
+      'trigram': trigram,
+      'name': name,
+    };
+    if (degree != null) payload['degree'] = degree;
+
+    final res = await http
+        .post(
+          uri,
+          headers: _headers,
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 8));
+
+    if (res.statusCode != 200) {
+      String detail = '八宅排盘失败';
+      try {
+        final j = jsonDecode(res.body) as Map<String, dynamic>;
+        // FastAPI 的 HTTPException detail 就是给用户看的中文提示
+        detail = (j['detail'] ?? j['message'] ?? detail).toString();
+      } catch (_) {}
+      throw _httpError(res.statusCode, detail);
+    }
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (body['code'] != 0) {
+      throw ApiException('${body['status'] ?? '八宅排盘失败'}');
+    }
+    return BazhaiChart.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  /// 黄历：指定日期的通书。date 传「YYYY-MM-DD」，留空取服务端今天。
+  Future<AlmanacDay> fetchAlmanacDay({String? date}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/almanac/day').replace(
+      queryParameters: (date == null || date.isEmpty) ? null : {'date': date},
+    );
+    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    return AlmanacDay.fromJson(
+      _errorBodyOrData(res, fallback: '黄历加载失败，请稍后重试'),
+    );
+  }
+
+  /// 可择日的事项清单（装修开工 / 入宅搬家 / 安床 …）。
+  Future<List<AlmanacActivity>> fetchAlmanacActivities() async {
+    final uri = Uri.parse('$baseUrl/api/v1/almanac/activities');
+    final res = await http.get(uri).timeout(const Duration(seconds: 8));
+    final data = _errorBodyOrData(res, fallback: '事项加载失败');
+    return (data['activities'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(AlmanacActivity.fromJson)
+        .toList();
+  }
+
+  /// 择日：在 [days] 天区间内为 [activity] 挑吉日，按分数降序返回。
+  ///
+  /// [zodiac] 传用户生肖时，冲该生肖的日子会被扣分并在结果里标记
+  /// （后端保留这些日期并标注 clash，不静默剔除）。
+  Future<AlmanacSelectResult> selectAlmanacDates({
+    required String activity,
+    String? startDate,
+    int days = 30,
+    String zodiac = '',
+    int limit = 8,
+    int minScore = 0,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/almanac/select');
+    final payload = <String, dynamic>{
+      'activity': activity,
+      'days': days,
+      'zodiac': zodiac,
+      'limit': limit,
+      'min_score': minScore,
+    };
+    if (startDate != null && startDate.isNotEmpty) {
+      payload['start_date'] = startDate;
+    }
+    final res = await http
+        .post(uri, headers: _headers, body: jsonEncode(payload))
+        .timeout(const Duration(seconds: 15));
+    return AlmanacSelectResult.fromJson(
+      _errorBodyOrData(res, fallback: '择日失败，请稍后重试'),
+    );
+  }
+
+  /// 整月每日吉凶。activity 留空则返回「当日总体吉凶」。
+  Future<AlmanacCalendar> fetchAlmanacCalendar({
+    required int year,
+    required int month,
+    String activity = '',
+    String zodiac = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/almanac/month').replace(
+      queryParameters: {
+        'year': '$year',
+        'month': '$month',
+        if (activity.isNotEmpty) 'activity': activity,
+        if (zodiac.isNotEmpty) 'zodiac': zodiac,
+      },
+    );
+    final res = await http.get(uri).timeout(const Duration(seconds: 15));
+    return AlmanacCalendar.fromJson(
+      _errorBodyOrData(res, fallback: '月历加载失败，请稍后重试'),
+    );
   }
 
   /// 非 200 时抛 ApiException（detail 透出后端中文提示）；200 时返回 data。

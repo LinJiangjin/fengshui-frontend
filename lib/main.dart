@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import 'models/diagnosis.dart';
 import 'models/house.dart';
+import 'pages/almanac_page.dart';
 import 'pages/bazi_page.dart';
+import 'pages/bazhai_page.dart';
 import 'pages/compass_page.dart';
 import 'pages/home_page.dart';
 import 'pages/house_page.dart';
@@ -384,10 +386,50 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _auth.logout();
   }
 
+  /// 注销账号：成功返回 null，失败返回可展示给用户的错误文案。
+  ///
+  /// 失败时不动本地登录态（由 AuthStore.deleteAccount 保证），用户可以重试，
+  /// 不会出现「以为注销了、其实账号还在」的假象。
+  Future<String?> _deleteAccount() async {
+    try {
+      await _auth.deleteAccount();
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    } catch (e) {
+      debugPrint('[AppShell] 注销账号失败: $e');
+      return '注销失败，请检查网络后重试';
+    }
+  }
+
   Future<void> _openHouses() async {
     final store = _store;
     if (store == null) return;
     await Navigator.of(context).push<void>(_page(HousePage(store: store)));
+  }
+
+  /// 打开八宅盘：命卦取自命理档案，宅卦取自当前房屋的坐向。
+  /// 缺任一条时页面内部会给出引导，由这里的回调切到对应 tab 去补录。
+  Future<void> _openBazhai() async {
+    await Navigator.of(context).push<void>(_page(BazhaiPage(
+      house: _house,
+      onOpenBazi: () {
+        Navigator.of(context).pop();
+        setState(() => _tab = 3);
+      },
+      onOpenCompass: () {
+        Navigator.of(context).pop();
+        setState(() => _tab = 1);
+      },
+    )));
+  }
+
+  /// 打开黄历择日。
+  ///
+  /// 纯计算接口，不依赖房屋与命理档案，也不需要登录态，
+  /// 因此这里不做任何前置校验，直接进页面。
+  Future<void> _openAlmanac() async {
+    await Navigator.of(context).push<void>(_page(const AlmanacPage()));
   }
 
   Route<T> _page<T>(Widget child) {
@@ -445,10 +487,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       updatedAt: _updatedAt,
       user: _auth.user,
       onLogout: _logout,
+      onDeleteAccount: _deleteAccount,
       onOpenHouses: _openHouses,
       onRefresh: _onRefresh,
       onQuickAction: (i) {
-        // 0 罗盘定向 1 八字排盘 2 户型诊断 3 家具布局
+        // 0 罗盘定向 1 八字排盘 2 八宅吉方 3 户型诊断 4 家具布局 5 黄历择日
         switch (i) {
           case 0:
             setState(() => _tab = 1);
@@ -457,6 +500,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             setState(() => _tab = 3);
             break;
           case 2:
+            _openBazhai();
+            break;
+          case 3:
             if (_diagnosis != null) {
               Navigator.of(context).push<void>(_page(ReportPage(
                 diagnosis: _diagnosis!,
@@ -470,13 +516,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               )));
             }
             break;
-          case 3:
+          case 4:
             Navigator.of(context).push<void>(
                 _page(LayoutPage(
                 diagnosis: _diagnosis,
                 house: _house,
                 onApplyRooms: _applyLayout,
               )));
+            break;
+          case 5:
+            _openAlmanac();
             break;
         }
       },

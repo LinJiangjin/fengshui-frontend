@@ -4,6 +4,7 @@ import '../services/api_client.dart';
 import '../services/auth_store.dart';
 import '../theme/app_colors.dart';
 import '../widgets/auth_kit.dart';
+import 'legal_page.dart';
 import 'register_page.dart';
 
 /// 验证码登录页。手机号未注册时后端自动创建账号，所以本页也是「快捷登录」。
@@ -133,11 +134,45 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
       const SizedBox(height: 16),
-      const Text(
-        '登录即代表同意《用户协议》与《隐私政策》',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
-      ),
+      _agreementNote(context),
     ]);
+  }
+
+  /// 协议提示：书名号内的两份文档可点击打开。
+  ///
+  /// 用 Wrap 而不是 RichText + TapGestureRecognizer——后者需要在 State 里持有
+  /// 并 dispose 识别器；这里只是纯展示，Wrap 更省事，窄屏还会自动换行。
+  Widget _agreementNote(BuildContext context) {
+    const base = TextStyle(fontSize: 11, color: AppColors.muted);
+    const link = TextStyle(
+      fontSize: 11,
+      color: AppColors.primary,
+      fontWeight: FontWeight.w600,
+    );
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const Text('登录即代表同意', style: base),
+        GestureDetector(
+          onTap: () => _openLegal(context, 'user-agreement', '用户协议'),
+          child: const Text('《用户协议》', style: link),
+        ),
+        const Text('与', style: base),
+        GestureDetector(
+          onTap: () => _openLegal(context, 'privacy-policy', '隐私政策'),
+          child: const Text('《隐私政策》', style: link),
+        ),
+      ],
+    );
+  }
+
+  /// 文档正文由服务端下发，这里只把 slug 与标题带过去
+  void _openLegal(BuildContext context, String slug, String title) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LegalPage(slug: slug, title: title),
+      ),
+    );
   }
 }

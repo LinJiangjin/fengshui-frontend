@@ -70,6 +70,17 @@ class AuthStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 注销账号（不可恢复）。
+  ///
+  /// 与 logout 的区别：logout 只清本地 token，账号还在；注销会请求后端销毁
+  /// 账号与个人数据。**失败时不清理本地登录态**——否则用户会以为注销成功，
+  /// 实际上账号还活着，还能重新登进来，这是最糟的误导。
+  Future<void> deleteAccount() async {
+    await ApiClient().deleteAccount();
+    await _clearToken();
+    notifyListeners();
+  }
+
   /// 401 时全局调用：清 token，AuthGate 自动切回登录页。
   Future<void> forceLogout() async {
     if (_user == null && (kAuthToken == null || kAuthToken!.isEmpty)) return;

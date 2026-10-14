@@ -25,6 +25,7 @@ enum AppIconKind {
   spark,
   home,
   user,
+  calendar,
 }
 
 class AppIcon extends StatelessWidget {
@@ -375,6 +376,31 @@ class _AppIconPainter extends CustomPainter {
             ..cubicTo(4.5, 16.6, 7.9, 14.3, 12, 14.3)
             ..cubicTo(16.1, 14.3, 19.5, 16.6, 19.5, 20.5),
           stroke,
+        );
+        break;
+
+      // 黄历择日：日历体 + 顶部挂环 + 日期点
+      case AppIconKind.calendar:
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(3.5, 5.5, 17, 15),
+            const Radius.circular(3.2),
+          ),
+          stroke,
+        );
+        canvas.drawLine(const Offset(3.5, 10), const Offset(20.5, 10), stroke);
+        canvas.drawLine(const Offset(8.5, 3.4), const Offset(8.5, 7.2), stroke);
+        canvas.drawLine(const Offset(15.5, 3.4), const Offset(15.5, 7.2), stroke);
+        canvas.drawPoints(
+          ui.PointMode.points,
+          const [
+            Offset(8, 13.8),
+            Offset(12, 13.8),
+            Offset(16, 13.8),
+            Offset(8, 17.4),
+            Offset(12, 17.4),
+          ],
+          stroke..strokeWidth = strokeWidth,
         );
         break;
     }
