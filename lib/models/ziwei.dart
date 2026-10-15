@@ -2,9 +2,15 @@
 ///
 /// 全部内容由服务端确定性引擎算出（/api/v1/ziwei），客户端只做展示，
 /// 不在这里做任何推断或兜底文案。
+///
+/// 行话（命宫 / 身宫 / 四化 / 空宫 / 大限 / 太岁…）的白话解释同样来自
+/// 服务端的 [guide]，客户端不自带术语表，保证与后端口径一起改版。
 class ZiweiChart {
   const ZiweiChart({
     required this.headline,
+    required this.headlinePlain,
+    required this.guideIntro,
+    required this.guide,
     required this.basic,
     required this.palaces,
     required this.love,
@@ -15,6 +21,15 @@ class ZiweiChart {
 
   /// 一句话命格，如「巨门坐命，事业宫见天同」
   final String headline;
+
+  /// 上面那句的白话版，如「性格底色是巨门（爱钻研、能说会道）…」
+  final String headlinePlain;
+
+  /// 术语表导语
+  final String guideIntro;
+
+  /// 「怎么看这张盘」术语白话对照
+  final List<ZiweiGlossary> guide;
 
   final ZiweiBasic basic;
   final List<ZiweiPalace> palaces;
@@ -36,6 +51,11 @@ class ZiweiChart {
         json['reading'] as Map<String, dynamic>? ?? <String, dynamic>{};
     return ZiweiChart(
       headline: reading['headline']?.toString() ?? '',
+      headlinePlain: reading['headline_plain']?.toString() ?? '',
+      guideIntro: reading['guide_intro']?.toString() ?? '',
+      guide: ((reading['guide'] as List?) ?? [])
+          .map((e) => ZiweiGlossary.fromJson(e as Map<String, dynamic>))
+          .toList(),
       basic: ZiweiBasic.fromJson(
         json['basic'] as Map<String, dynamic>? ?? const {},
       ),
@@ -58,6 +78,19 @@ class ZiweiChart {
   }
 }
 
+/// 术语白话对照的一行：行话 + 大白话解释
+class ZiweiGlossary {
+  const ZiweiGlossary({required this.term, required this.plain});
+
+  final String term;
+  final String plain;
+
+  factory ZiweiGlossary.fromJson(Map<String, dynamic> json) => ZiweiGlossary(
+        term: json['term']?.toString() ?? '',
+        plain: json['plain']?.toString() ?? '',
+      );
+}
+
 /// 命盘基本信息：命宫 / 身宫 / 五行局 / 紫微落宫
 class ZiweiBasic {
   const ZiweiBasic({
@@ -67,6 +100,7 @@ class ZiweiBasic {
     required this.shenPalace,
     required this.ju,
     required this.ziweiZhi,
+    required this.plain,
   });
 
   final String mingZhi;
@@ -82,6 +116,9 @@ class ZiweiBasic {
   /// 紫微星落哪个地支
   final String ziweiZhi;
 
+  /// 上面这几个术语的白话版（服务端生成，前端原样展示）
+  final String plain;
+
   factory ZiweiBasic.fromJson(Map<String, dynamic> json) => ZiweiBasic(
         mingZhi: json['ming_zhi']?.toString() ?? '',
         mingPillar: json['ming_pillar']?.toString() ?? '',
@@ -89,6 +126,7 @@ class ZiweiBasic {
         shenPalace: json['shen_palace']?.toString() ?? '',
         ju: json['ju']?.toString() ?? '',
         ziweiZhi: json['ziwei_zhi']?.toString() ?? '',
+        plain: json['plain']?.toString() ?? '',
       );
 
   /// 副标题一行：「命宫癸巳 · 身宫福德 · 水二局 · 紫微在寅」
@@ -100,6 +138,7 @@ class ZiweiBasic {
 class ZiweiPalace {
   const ZiweiPalace({
     required this.name,
+    required this.plain,
     required this.zhi,
     required this.gan,
     required this.main,
@@ -113,6 +152,10 @@ class ZiweiPalace {
   });
 
   final String name;
+
+  /// 这一宫管什么的大白话，如「感情与亲密关系」
+  final String plain;
+
   final String zhi;
   final String gan;
 
@@ -131,6 +174,7 @@ class ZiweiPalace {
 
   factory ZiweiPalace.fromJson(Map<String, dynamic> json) => ZiweiPalace(
         name: json['name']?.toString() ?? '',
+        plain: json['plain']?.toString() ?? '',
         zhi: json['zhi']?.toString() ?? '',
         gan: json['gan']?.toString() ?? '',
         main: _strings(json['main']),
@@ -159,6 +203,7 @@ class ZiweiSection {
     required this.palace,
     required this.zhi,
     required this.stars,
+    required this.plain,
     required this.summary,
     required this.points,
     this.borrowed = false,
@@ -172,6 +217,10 @@ class ZiweiSection {
   final String palace;
   final String zhi;
   final List<String> stars;
+
+  /// 这一段「看的是什么、依据哪一宫」的白话导语
+  final String plain;
+
   final String summary;
   final List<String> points;
 
@@ -189,6 +238,7 @@ class ZiweiSection {
         palace: json['palace']?.toString() ?? '',
         zhi: json['zhi']?.toString() ?? '',
         stars: _strings(json['stars']),
+        plain: json['plain']?.toString() ?? '',
         summary: json['summary']?.toString() ?? '',
         points: _strings(json['points']),
         borrowed: json['borrowed'] ?? false,
@@ -214,6 +264,7 @@ class ZiweiDaXian {
     required this.palace,
     required this.zhi,
     required this.stars,
+    required this.plain,
     required this.summary,
     required this.points,
   });
@@ -223,6 +274,10 @@ class ZiweiDaXian {
   final String palace;
   final String zhi;
   final List<String> stars;
+
+  /// 「大限是什么、这一步当值哪一宫」的白话导语
+  final String plain;
+
   final String summary;
   final List<String> points;
 
@@ -231,6 +286,7 @@ class ZiweiDaXian {
         palace: json['palace']?.toString() ?? '',
         zhi: json['zhi']?.toString() ?? '',
         stars: _strings(json['stars']),
+        plain: json['plain']?.toString() ?? '',
         summary: json['summary']?.toString() ?? '',
         points: _strings(json['points']),
       );
@@ -250,6 +306,7 @@ class ZiweiYear {
     required this.daXianRange,
     required this.taiSuiPalace,
     required this.taiSuiZhi,
+    required this.plain,
     required this.focus,
     required this.stance,
     required this.siHua,
@@ -273,6 +330,9 @@ class ZiweiYear {
   /// 太岁所在宫（当年事务焦点）
   final String taiSuiPalace;
   final String taiSuiZhi;
+
+  /// 把「年龄 / 大限 / 太岁」三个术语翻译成一句话的白话导语
+  final String plain;
 
   /// 重点领域，如「事业 · 财运」
   final String focus;
@@ -299,6 +359,7 @@ class ZiweiYear {
       ].whereType<int>().join('-'),
       taiSuiPalace: tai['palace']?.toString() ?? '',
       taiSuiZhi: tai['zhi']?.toString() ?? '',
+      plain: json['plain']?.toString() ?? '',
       focus: json['focus']?.toString() ?? '',
       stance: json['stance']?.toString() ?? '',
       siHua: ((json['si_hua'] as List?) ?? []).map((e) {

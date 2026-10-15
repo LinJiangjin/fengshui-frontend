@@ -77,6 +77,9 @@ class _BaziPageState extends State<BaziPage> {
   /// 流年是否展开全部十年（默认只展示最近三年）
   bool _yearsExpanded = false;
 
+  /// 紫微卡片的「怎么看这张盘」术语表是否展开（默认收起，不挡正文）
+  bool _guideExpanded = false;
+
   DateTime? _date;
   TimeOfDay? _time;
   String _gender = '男';
@@ -782,7 +785,11 @@ class _BaziPageState extends State<BaziPage> {
   }
 
   // ------------------------------------------------------- 紫微斗数
-  /// 紫微斗数：十二宫速览 + 感情 / 职业 / 运势三块解读
+  /// 紫微斗数：白话总览 + 怎么看这张盘 + 十二宫速览 + 感情 / 职业 / 运势解读
+  ///
+  /// 斗数行话密度高（命宫 / 身宫 / 四化 / 空宫 / 大限 / 太岁），
+  /// 所以每块解读都由后端带一句白话导语，术语表也由后端下发，
+  /// 这里只负责把「白话放正文、行话放小字」这件事排好。
   Widget _ziweiCard() {
     final chart = _ziwei;
     return Container(
@@ -811,10 +818,9 @@ class _BaziPageState extends State<BaziPage> {
           if (chart == null)
             _ziweiStatus()
           else ...[
-            Text(
-              chart.basic.summary,
-              style: AppText.body12.copyWith(color: AppColors.muted),
-            ),
+            _ziweiPlainBlock(chart),
+            const SizedBox(height: AppDimens.gapS),
+            _ziweiGuide(chart),
             const SizedBox(height: AppDimens.gapL),
             _palaceGrid(chart.palaces),
             const SizedBox(height: AppDimens.gapL),
@@ -837,6 +843,143 @@ class _BaziPageState extends State<BaziPage> {
             ],
           ],
         ],
+      ),
+    );
+  }
+
+  /// 白话总览：行话原文照旧显示（小字），下面给出人话版本
+  Widget _ziweiPlainBlock(ZiweiChart chart) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppDimens.gapM),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoftBg,
+        borderRadius: BorderRadius.circular(AppDimens.rS),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '白话',
+                  style: AppText.medium11.copyWith(
+                    color: AppColors.primary,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppDimens.gapS),
+              Expanded(
+                child: Text(
+                  chart.basic.summary,
+                  style: AppText.label11.copyWith(color: AppColors.primary),
+                ),
+              ),
+            ],
+          ),
+          if (chart.headlinePlain.isNotEmpty) ...[
+            const SizedBox(height: AppDimens.gapS),
+            Text(
+              chart.headlinePlain,
+              style: AppText.body12.copyWith(color: AppColors.ink),
+            ),
+          ],
+          if (chart.basic.plain.isNotEmpty) ...[
+            const SizedBox(height: AppDimens.gapXS),
+            Text(chart.basic.plain, style: AppText.body12),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 「怎么看这张盘」：把行话逐条翻译成大白话，默认收起
+  Widget _ziweiGuide(ZiweiChart chart) {
+    final open = _guideExpanded;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.iconBg,
+        borderRadius: BorderRadius.circular(AppDimens.rS),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _guideExpanded = !open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppDimens.gapM,
+                vertical: AppDimens.gapM,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      open ? '怎么看这张盘' : '看不懂术语？点开「怎么看这张盘」',
+                      style: AppText.medium12.copyWith(color: AppColors.primary),
+                    ),
+                  ),
+                  Icon(
+                    open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (open) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppDimens.gapM,
+                0,
+                AppDimens.gapM,
+                AppDimens.gapM,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (chart.guideIntro.isNotEmpty) ...[
+                    Text(chart.guideIntro, style: AppText.label11),
+                    const SizedBox(height: AppDimens.gapS),
+                  ],
+                  ...chart.guide.map(_guideRow),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _guideRow(ZiweiGlossary g) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppDimens.gapS),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '${g.term}：',
+              style: AppText.body12.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            TextSpan(text: g.plain, style: AppText.body12),
+          ],
+        ),
       ),
     );
   }
@@ -866,19 +1009,27 @@ class _BaziPageState extends State<BaziPage> {
     );
   }
 
-  /// 十二宫速览：命宫高亮，身宫标「身」，空宫显示「空宫」
+  /// 十二宫速览：命宫高亮，身宫标「身」，空宫显示「空宫」，
+  /// 每格还标出这一宫管什么（白话文案来自后端）
   Widget _palaceGrid(List<ZiweiPalace> palaces) {
-    return Wrap(
-      spacing: AppDimens.gapS,
-      runSpacing: AppDimens.gapS,
-      children: palaces.map(_palaceBox).toList(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('十二宫速览', style: AppText.smallTitle),
+        const SizedBox(height: AppDimens.gapS),
+        Wrap(
+          spacing: AppDimens.gapS,
+          runSpacing: AppDimens.gapS,
+          children: palaces.map(_palaceBox).toList(),
+        ),
+      ],
     );
   }
 
   Widget _palaceBox(ZiweiPalace p) {
     return Container(
-      width: 96,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+      width: 100,
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
       decoration: BoxDecoration(
         color: p.isMing ? AppColors.primarySoft : AppColors.iconBg,
         borderRadius: BorderRadius.circular(AppDimens.rS),
@@ -906,7 +1057,15 @@ class _BaziPageState extends State<BaziPage> {
               ],
             ],
           ),
-          const SizedBox(height: 2),
+          // 宫名的白话注释：不熟斗数的人靠这一行才看得懂这格在说什么
+          if (p.plain.isNotEmpty)
+            Text(
+              p.plain,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.label11.copyWith(fontSize: 10),
+            ),
+          const SizedBox(height: 3),
           Text(
             p.starText,
             maxLines: 1,
@@ -928,7 +1087,7 @@ class _BaziPageState extends State<BaziPage> {
     );
   }
 
-  /// 一段解读：标题 + 宫位信息 + 逐条结论
+  /// 一段解读：标题 + 宫位信息 + **白话导语** + 逐条结论
   Widget _ziweiSection(ZiweiSection s) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -941,6 +1100,10 @@ class _BaziPageState extends State<BaziPage> {
             Text(s.caption, style: AppText.label11),
           ],
         ),
+        if (s.plain.isNotEmpty) ...[
+          const SizedBox(height: AppDimens.gapXS),
+          Text(s.plain, style: AppText.label11),
+        ],
         const SizedBox(height: AppDimens.gapS),
         ...s.points.map(
           (p) => Padding(
@@ -993,6 +1156,10 @@ class _BaziPageState extends State<BaziPage> {
               ),
             ],
           ),
+          if (d.plain.isNotEmpty) ...[
+            const SizedBox(height: AppDimens.gapXS),
+            Text(d.plain, style: AppText.label11),
+          ],
           const SizedBox(height: AppDimens.gapS),
           ...d.points.map(
             (p) => Padding(
@@ -1063,7 +1230,11 @@ class _BaziPageState extends State<BaziPage> {
             ],
           ),
           const SizedBox(height: 4),
-          Text(y.caption, style: AppText.label11),
+          // 白话导语替代原来的行话副标题（「太岁交友 · 大限田宅(32-41)」）
+          Text(
+            y.plain.isNotEmpty ? y.plain : y.caption,
+            style: AppText.label11,
+          ),
           if (y.focus.isNotEmpty) ...[
             const SizedBox(height: 2),
             Text('重点：$y.focus', style: AppText.label11),
