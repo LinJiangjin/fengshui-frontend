@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import '../services/base_url_resolver.dart';
 import '../theme/app_colors.dart';
 
 /// 登录 / 注册页共用的部件与样式，保证两页视觉完全一致。
@@ -293,6 +294,9 @@ bool isValidPhone(String v) => RegExp(r'^1[3-9]\d{9}$').hasMatch(v);
 void showAuthError(BuildContext context, Object e) {
   final msg = e is ApiException ? e.message : '网络异常，请稍后重试';
   debugPrint('[Auth] error: $e, msg: $msg');
+  // 非业务异常（连不上 / 超时 / 后端刚重启到别的 IP）：弃掉旧地址重新探测，
+  // 这样用户再点一次通常就能连上，不用重启 App。
+  if (e is! ApiException) _recoverBackend();
   ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     SnackBar(
       content: Text(msg),
@@ -300,4 +304,10 @@ void showAuthError(BuildContext context, Object e) {
       duration: const Duration(seconds: 3),
     ),
   );
+}
+
+/// 后台重探后端地址（不阻塞 UI，失败也只表现为下一次请求仍报错）。
+Future<void> _recoverBackend() async {
+  await invalidateApiBaseUrl();
+  await resolveApiBaseUrl();
 }

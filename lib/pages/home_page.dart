@@ -24,7 +24,8 @@ class HomePage extends StatelessWidget {
   final Diagnosis diagnosis;
 
   /// 快捷入口回调，索引与 _quickActions 的顺序一致：
-  /// 0 罗盘定向 / 1 八字排盘 / 2 八宅吉方 / 3 户型诊断 / 4 家具布局 / 5 黄历择日
+  /// 0 罗盘定向 / 1 八字排盘 / 2 八宅吉方 / 3 户型诊断 / 4 家具布局 /
+  /// 5 黄历择日 / 6 玄空飞星
   final ValueChanged<int> onQuickAction;
   final VoidCallback onOpenHouses;
 
@@ -581,8 +582,9 @@ class HomePage extends StatelessWidget {
 
   // ------------------------------------------------------- 快捷入口
   //
-  // 6 个入口按 3×2 排布：单行 6 个在 390 宽画布上间距只剩十来个像素，
+  // 7 个入口按 4 + 3 两行排布：单行铺满在 390 宽画布上间距只剩十来个像素，
   // 双行留白更舒服，也为后续新增功能留了位置。
+  // 末尾不足一行的用 SizedBox 补位，保证前三列与上一行严格对齐。
   Widget _quickActions() {
     final items = <(AppIconKind, String)>[
       (AppIconKind.compass, '罗盘定向'),
@@ -591,8 +593,9 @@ class HomePage extends StatelessWidget {
       (AppIconKind.report, '户型诊断'),
       (AppIconKind.plan, '家具布局'),
       (AppIconKind.calendar, '黄历择日'),
+      (AppIconKind.flyingStar, '玄空飞星'),
     ];
-    const perRow = 3;
+    const perRow = 4;
     final rows = <Widget>[];
     for (var start = 0; start < items.length; start += perRow) {
       rows.add(Row(

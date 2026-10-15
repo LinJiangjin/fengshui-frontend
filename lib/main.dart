@@ -14,8 +14,10 @@ import 'pages/layout_page.dart';
 import 'pages/library_page.dart';
 import 'pages/login_page.dart';
 import 'pages/report_page.dart';
+import 'pages/xuankong_page.dart';
 import 'services/api_client.dart';
 import 'services/auth_store.dart';
+import 'services/base_url_resolver.dart';
 import 'services/compass_service.dart';
 import 'services/house_store.dart';
 import 'theme/app_colors.dart';
@@ -24,6 +26,9 @@ import 'widgets/app_tab_bar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 探测后端地址：优先用编译期 dart-define，否则自动扫描局域网。
+  // 命中缓存时只有一次 /health 的往返；探测最多花 3 秒，超时不影响进界面。
+  await resolveApiBaseUrl();
   // 注意：Dart 侧不要再调用 SystemChrome 设置系统栏样式/模式——
   // PlatformPlugin 会重置系统 UI 标志，导致原生 edge-to-edge 失效。
   // 系统栏（透明 + 深色图标）由 MainActivity 原生控制。
@@ -432,6 +437,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     await Navigator.of(context).push<void>(_page(const AlmanacPage()));
   }
 
+  /// 打开玄空飞星（月盘 / 宅运盘）。
+  ///
+  /// 与黄历一样是纯计算接口，不做前置校验；但已实测坐向的房屋会被带过去
+  /// 作为宅运盘的坐向来源（比手选卦准，还能提示兼向）。
+  /// 未测量时页面内提供「去测量坐向」的引导，走 onOpenCompass 回到罗盘 tab。
+  Future<void> _openXuankong() async {
+    await Navigator.of(context).push<void>(_page(XuankongPage(
+      house: _house,
+      onOpenCompass: () {
+        Navigator.of(context).pop();
+        setState(() => _tab = 1);
+      },
+    )));
+  }
+
   Route<T> _page<T>(Widget child) {
     return MaterialPageRoute<T>(
       builder: (_) => Scaffold(
@@ -491,7 +511,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       onOpenHouses: _openHouses,
       onRefresh: _onRefresh,
       onQuickAction: (i) {
-        // 0 罗盘定向 1 八字排盘 2 八宅吉方 3 户型诊断 4 家具布局 5 黄历择日
+        // 0 罗盘定向 1 八字排盘 2 八宅吉方 3 户型诊断 4 家具布局
+        // 5 黄历择日 6 玄空飞星
         switch (i) {
           case 0:
             setState(() => _tab = 1);
@@ -526,6 +547,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             break;
           case 5:
             _openAlmanac();
+            break;
+          case 6:
+            _openXuankong();
             break;
         }
       },

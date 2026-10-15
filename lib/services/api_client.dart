@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 import '../models/almanac.dart';
@@ -12,21 +11,15 @@ import '../models/diagnosis.dart';
 import '../models/house.dart';
 import '../models/legal.dart';
 import '../models/library.dart';
+import '../models/xuankong.dart';
 import '../models/ziwei.dart';
 import '../models/user.dart';
+import 'base_url_resolver.dart';
 
-/// 后端地址。
-/// 默认本机调试；Android 模拟器自动改用 10.0.2.2 访问宿主机，
-/// 真机请用 --dart-define=API_BASE_URL=http://<电脑局域网IP>:8000 覆盖。
-///
-/// 注意：Web 平台没有 dart:io，必须用 kIsWeb 先短路，避免运行时崩溃。
-const String _kConfiguredBaseUrl = String.fromEnvironment('API_BASE_URL');
-
-final String kApiBaseUrl = _kConfiguredBaseUrl.isNotEmpty
-    ? _kConfiguredBaseUrl
-    : (kIsWeb || !Platform.isAndroid
-        ? 'http://127.0.0.1:8000'
-        : 'http://10.0.2.2:8000');
+/// 对外保留：页面里展示当前实际连接的后端地址。
+/// 真机运行不需要任何 dart-define —— base_url_resolver 会在启动时自动找到
+/// 局域网里的后端并写入 kActiveApiBaseUrl，这里读到的是最新值。
+String get kApiBaseUrl => kActiveApiBaseUrl;
 
 /// 当前登录 token（由 AuthStore 写入 / 清除）。
 /// ApiClient 无状态，全局单例放这里最简单，避免层层传参。
@@ -66,9 +59,13 @@ class SendCodeResult {
 
 /// 所有结果均来自后端确定性规则引擎，客户端不再内置任何结果快照。
 class ApiClient {
-  ApiClient({String? baseUrl}) : baseUrl = baseUrl ?? kApiBaseUrl;
+  ApiClient({String? baseUrl}) : _override = baseUrl;
 
-  final String baseUrl;
+  /// 显式指定的地址优先（测试用），否则每次请求都读当前已解析的地址。
+  /// 做成 getter 而非 final，是为了让自动探测的结果对所有已创建的实例立即生效。
+  final String? _override;
+
+  String get baseUrl => _override ?? kActiveApiBaseUrl;
 
   /// 所有请求统一带 Content-Type + Bearer token（未登录时省略）
   Map<String, String> get _headers => {
@@ -565,9 +562,54 @@ class ApiClient {
     );
   }
 
+  /// 玄空月盘：指定日期所属**节气月**的九宫飞星，并与流年盘叠看。
+  ///
+  /// date 传「YYYY-MM-DD」，留空取服务端今天。注意「月」是节气月（立春起正月），
+  /// 与公历月不同步——响应里的 jieqi 会给出本月的界节。
+  Future<XuankongMonth> fetchXuankongMonth({String? date}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/xuankong/month').replace(
+      queryParameters: (date == null || date.isEmpty) ? null : {'date': date},
+    );
+    final res = await http.get(uri).timeout(const Duration(seconds: 10));
+    return XuankongMonth.fromJson(
+      _errorBodyOrData(res, fallback: '月盘加载失败，请稍后重试'),
+    );
+  }
+
+  /// 宅运盘：运星 / 山星 / 向星三盘叠加 + 格局判定。
+  ///
+  /// 坐向二者取一：degree（罗盘读数，推荐，会带出兼向提示）或 trigram（只知卦时
+  /// 由后端取该卦天元龙）。元运二者取一：yun（运数）或 buildYear（建宅年份）。
+  /// 两边各缺其一后端会返回 400——这里不做默认值兜底，否则用户会拿到一份
+  /// 凭空捏造的格局。
+  Future<XuankongHouse> fetchXuankongHouse({
+    double? degree,
+    double declination = 0.0,
+    String trigram = '',
+    int? yun,
+    int? buildYear,
+    String name = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/xuankong/house');
+    final payload = <String, dynamic>{
+      'declination': declination,
+      'name': name,
+    };
+    if (degree != null) payload['degree'] = degree;
+    if (trigram.isNotEmpty) payload['trigram'] = trigram;
+    if (yun != null) payload['yun'] = yun;
+    if (buildYear != null) payload['build_year'] = buildYear;
+
+    final res = await http
+        .post(uri, headers: _headers, body: jsonEncode(payload))
+        .timeout(const Duration(seconds: 12));
+    return XuankongHouse.fromJson(
+      _errorBodyOrData(res, fallback: '宅运盘加载失败，请稍后重试'),
+    );
+  }
+
   /// 非 200 时抛 ApiException（detail 透出后端中文提示）；200 时返回 data。
-  Map<String, dynamic> _errorBodyOrData(
-    http.Response res, {
+  Map<String, dynamic> _errorBodyOrData(http.Response res, {
     required String fallback,
   }) {
     if (res.statusCode == 401) {

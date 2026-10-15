@@ -56,8 +56,8 @@ class SchemeDetailPage extends StatelessWidget {
                       const SizedBox(height: AppDimens.gapL),
                       ...scheme.rooms.map(
                         (r) => Padding(
-                          padding: const EdgeInsets.only(
-                              bottom: AppDimens.gapL),
+                          padding:
+                              const EdgeInsets.only(bottom: AppDimens.gapL),
                           child: _roomCard(r),
                         ),
                       ),
@@ -85,7 +85,8 @@ class SchemeDetailPage extends StatelessWidget {
       children: [
         GestureDetector(
           onTap: () => Navigator.maybePop(context),
-          child: const AppIcon(AppIconKind.back, size: 22, color: AppColors.ink),
+          child:
+              const AppIcon(AppIconKind.back, size: 22, color: AppColors.ink),
         ),
         const Text('方案详情', style: AppText.pageTitle),
         // 占位，让标题保持居中
@@ -298,7 +299,7 @@ class SchemeDetailPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
+          const Text(
             '点色块可复制色值，交给设计师或装修公司直接对色',
             style: AppText.label11,
           ),
@@ -368,8 +369,7 @@ class SchemeDetailPage extends StatelessWidget {
                   Expanded(
                     child: Text(
                       scheme.highlights[i],
-                      style:
-                          AppText.body13.copyWith(color: AppColors.inkSoft),
+                      style: AppText.body13.copyWith(color: AppColors.inkSoft),
                     ),
                   ),
                 ],

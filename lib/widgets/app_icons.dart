@@ -26,6 +26,7 @@ enum AppIconKind {
   home,
   user,
   calendar,
+  flyingStar,
 }
 
 class AppIcon extends StatelessWidget {
@@ -402,6 +403,21 @@ class _AppIconPainter extends CustomPainter {
           ],
           stroke..strokeWidth = strokeWidth,
         );
+        break;
+
+      // 玄空飞星：九宫格 + 中宫实点 + 飞临角标（与「家具布局」的四方块区分）
+      case AppIconKind.flyingStar:
+        final grid = Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.3
+          ..strokeCap = StrokeCap.round;
+        for (final v in const [5.6, 12.0, 18.4]) {
+          canvas.drawLine(Offset(3.6, v), Offset(20.4, v), grid);
+          canvas.drawLine(Offset(v, 3.6), Offset(v, 20.4), grid);
+        }
+        canvas.drawCircle(const Offset(12, 12), 1.9, fill);
+        canvas.drawCircle(const Offset(15.2, 8.8), 1.6, fill);
         break;
     }
     canvas.restore();
