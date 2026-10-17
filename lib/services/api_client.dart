@@ -14,6 +14,7 @@ import '../models/library.dart';
 import '../models/divination.dart';
 import '../models/marriage.dart';
 import '../models/phone_energy.dart';
+import '../models/record.dart';
 import '../models/xuankong.dart';
 import '../models/ziwei.dart';
 import '../models/user.dart';
@@ -92,6 +93,8 @@ class ApiClient {
     double area = 0,
     int? year,
     DateTime? date,
+    int? month,
+    int? day,
   }) async {
     final d = date ?? DateTime.now();
     final uri = Uri.parse('$baseUrl/api/v1/diagnose');
@@ -107,9 +110,11 @@ class ApiClient {
             'house_name': houseName,
             'layout': layout,
             'area': area,
-            // 日家紫白按测算当日推算，今日吉位 / 今日忌方随日期变化
-            'month': d.month,
-            'day': d.day,
+            // 日家紫白按测算当日推算，今日吉位 / 今日忌方随日期变化。
+            // month/day 可显式传入：回放测算记录时要按当时那天算，
+            // 不能悄悄换成今天（同一份参数必须还原同一份报告）
+            'month': month ?? d.month,
+            'day': day ?? d.day,
           }),
         )
         .timeout(const Duration(seconds: 8));
@@ -325,6 +330,90 @@ class ApiClient {
     }
     if (res.statusCode != 200) {
       throw _httpError(res.statusCode, '房屋删除失败：HTTP ${res.statusCode}');
+    }
+  }
+
+  // ------------------------------------------------------- 测算记录（落库）
+  /// 保存一次测算。同参重复保存服务端走更新（不堆重复行），返回落库后的记录。
+  ///
+  /// [params] 是该次测算的入参快照（不是结果）：打开记录时由对应页面按它
+  /// 重新请求计算接口。号码八星刻意不在可保存范围（隐私：不落完整号码）。
+  Future<CalcRecord> saveRecord({
+    required String kind,
+    required String title,
+    String summary = '',
+    required Map<String, dynamic> params,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/records');
+    final res = await http
+        .post(
+          uri,
+          headers: _headers,
+          body: jsonEncode({
+            'kind': kind,
+            'title': title,
+            'summary': summary,
+            'params': params,
+          }),
+        )
+        .timeout(const Duration(seconds: 8));
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '测算记录保存失败：HTTP ${res.statusCode}');
+    }
+    return CalcRecord.fromJson(_decode(res.body));
+  }
+
+  /// 当前用户的测算记录列表，按更新时间倒序（列表项不含 params）
+  Future<List<CalcRecord>> fetchRecords() async {
+    final uri = Uri.parse('$baseUrl/api/v1/records');
+    final res = await http.get(uri, headers: _headers).timeout(
+          const Duration(seconds: 8),
+        );
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '测算记录加载失败：HTTP ${res.statusCode}');
+    }
+    final body = _decode(res.body);
+    final items = (body['items'] as List? ?? []);
+    return items
+        .map((e) => CalcRecord.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// 单条详情（含 params）：打开记录时按 kind 回放到对应测算页
+  Future<CalcRecord> fetchRecord(String id) async {
+    final uri = Uri.parse('$baseUrl/api/v1/records/$id');
+    final res = await http.get(uri, headers: _headers).timeout(
+          const Duration(seconds: 8),
+        );
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode == 404) {
+      throw _httpError(404, '测算记录不存在');
+    }
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '测算记录加载失败：HTTP ${res.statusCode}');
+    }
+    return CalcRecord.fromJson(_decode(res.body));
+  }
+
+  /// 删除一条测算记录（只能删自己的；后端对他人 id 同样不泄露存在性）
+  Future<void> deleteRecord(String id) async {
+    final uri = Uri.parse('$baseUrl/api/v1/records/$id');
+    final res = await http.delete(uri, headers: _headers).timeout(
+          const Duration(seconds: 8),
+        );
+    if (res.statusCode == 401) {
+      throw _httpError(401, '登录已过期，请重新登录');
+    }
+    if (res.statusCode != 200) {
+      throw _httpError(res.statusCode, '测算记录删除失败：HTTP ${res.statusCode}');
     }
   }
 

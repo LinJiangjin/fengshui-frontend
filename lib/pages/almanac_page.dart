@@ -8,6 +8,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
+import '../widgets/save_record_button.dart';
 
 /// S8 · 黄历择日
 ///
@@ -24,7 +25,11 @@ import '../widgets/app_icons.dart';
 /// 本页是纯计算接口，不需要登录，也不依赖房屋 / 命理档案；
 /// 唯一的可选输入是「自己生肖」，用于避开冲日。
 class AlmanacPage extends StatefulWidget {
-  const AlmanacPage({super.key});
+  const AlmanacPage({super.key, this.initialParams});
+
+  /// 从测算记录打开时的入参快照；非 null 时按它直接查询，
+  /// 而不是从「今天」开始（回放的是当时查的那一天 / 那一次择日）
+  final Map<String, dynamic>? initialParams;
 
   @override
   State<AlmanacPage> createState() => _AlmanacPageState();
@@ -56,12 +61,40 @@ class _AlmanacPageState extends State<AlmanacPage> {
   bool _selectLoading = false;
   String? _selectError;
 
+  /// 从测算记录回放时的入参快照；非 null 时保存按钮按它存
+  Map<String, dynamic>? _replayParams;
+
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _cursor = DateTime(now.year, now.month, now.day);
     _monthCursor = DateTime(now.year, now.month);
+
+    // 从测算记录打开：按存的入参直接查询（当时那一天 / 那一次择日）
+    final ip = widget.initialParams;
+    if (ip != null) {
+      _replayParams = ip;
+      _replay(ip);
+      return;
+    }
+    _loadDay();
+  }
+
+  void _replay(Map<String, dynamic> params) {
+    if (params['mode'] == 'select') {
+      _mode = _Mode.select;
+      _activityKey = params['activity']?.toString() ?? 'zhuangxiu';
+      _zodiac = params['zodiac']?.toString() ?? '';
+      final start = params['start_date']?.toString() ?? '';
+      final parsed = DateTime.tryParse(start);
+      if (parsed != null) _monthCursor = DateTime(parsed.year, parsed.month);
+      _ensureSelectData();
+      return;
+    }
+    final date = params['date']?.toString() ?? '';
+    final parsed = DateTime.tryParse(date);
+    if (parsed != null) _cursor = DateTime(parsed.year, parsed.month, parsed.day);
     _loadDay();
   }
 
@@ -231,6 +264,52 @@ class _AlmanacPageState extends State<AlmanacPage> {
     _runSelect();
   }
 
+  // ---------------------------------------------------------------- 测算记录
+  /// 保存用的入参：回放时按记录原参存，否则取当前查询条件。
+  /// 黄历的查询条件就是全部输入（本页无档案依赖），所以两个模式都直接可存。
+  Map<String, dynamic> _recordParams() {
+    final replay = _replayParams;
+    if (replay != null) return replay;
+
+    if (_mode == _Mode.select) {
+      return <String, dynamic>{
+        'mode': 'select',
+        'activity': _activityKey,
+        'zodiac': _zodiac,
+        'start_date': _ymd(_monthCursor),
+        'days': _daysInMonth(_monthCursor),
+      };
+    }
+    return <String, dynamic>{
+      'mode': 'day',
+      'date': _ymd(_cursor),
+    };
+  }
+
+  String get _recordTitle {
+    if (_mode == _Mode.select) {
+      AlmanacActivity? activity;
+      for (final a in _activities) {
+        if (a.key == _activityKey) {
+          activity = a;
+          break;
+        }
+      }
+      return '择日 · ${activity?.name ?? _activityKey}';
+    }
+    return '黄历 · ${_ymd(_cursor)}';
+  }
+
+  String get _recordSummary {
+    if (_mode == _Mode.select) {
+      final zodiac = _zodiac.isEmpty ? '' : ' · 属$_zodiac';
+      return '${_ymd(_monthCursor)} 起 ${_daysInMonth(_monthCursor)} 天$zodiac';
+    }
+    final day = _day;
+    if (day == null) return '';
+    return '${day.weekday} · 农历${day.lunar.text}';
+  }
+
   // ---------------------------------------------------------------- 骨架
   @override
   Widget build(BuildContext context) {
@@ -274,10 +353,12 @@ class _AlmanacPageState extends State<AlmanacPage> {
           ),
         ),
         const Text('黄历择日', style: AppText.pageTitle),
-        const Padding(
-          padding: EdgeInsets.all(6),
-          child: Icon(Icons.calendar_month_rounded,
-              size: 20, color: AppColors.ink),
+        // 右侧槽位：阅读类产品的书签位——存这次查询的入参
+        SaveRecordButton(
+          kind: 'almanac',
+          title: _recordTitle,
+          summary: _recordSummary,
+          params: _recordParams(),
         ),
       ],
     );

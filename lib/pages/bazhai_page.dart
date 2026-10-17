@@ -10,6 +10,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
+import '../widgets/save_record_button.dart';
 
 /// S7 · 八宅吉方
 ///
@@ -27,6 +28,7 @@ class BazhaiPage extends StatefulWidget {
     this.house,
     this.onOpenBazi,
     this.onOpenCompass,
+    this.initialParams,
   });
 
   /// 当前房屋；为空表示还没建档，未测量坐向时页面给出对应引导
@@ -37,6 +39,10 @@ class BazhaiPage extends StatefulWidget {
 
   /// 缺坐向时跳到罗盘页测量
   final VoidCallback? onOpenCompass;
+
+  /// 从测算记录打开时的入参快照；非 null 时按它直接排盘，
+  /// 不读本地档案与当前房屋（档案可能已变，回放的是当时那份入参）
+  final Map<String, dynamic>? initialParams;
 
   @override
   State<BazhaiPage> createState() => _BazhaiPageState();
@@ -54,9 +60,19 @@ class _BazhaiPageState extends State<BazhaiPage> {
   bool _loading = true;
   _Blocker _blocker = _Blocker.none;
 
+  /// 从测算记录回放时的入参快照；非 null 时保存按钮按它存（而非当前档案）
+  Map<String, dynamic>? _replayParams;
+
   @override
   void initState() {
     super.initState();
+    // 从测算记录打开：按存的参数直接排盘，不读本地档案与当前房屋
+    final ip = widget.initialParams;
+    if (ip != null) {
+      _replayParams = ip;
+      _loadFromParams(ip);
+      return;
+    }
     _store.addListener(_onStoreChanged);
     _bootstrap();
   }
@@ -159,6 +175,82 @@ class _BazhaiPageState extends State<BazhaiPage> {
     }
   }
 
+  /// 从测算记录回放：按存的入参直接排盘。
+  /// 不看本地档案与当前房屋——档案可能已变，回放的是当时那份入参。
+  Future<void> _loadFromParams(Map<String, dynamic> params) async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _blocker = _Blocker.none;
+    });
+
+    try {
+      final chart = await _api.fetchBazhai(
+        year: (params['year'] as num?)?.toInt() ?? 0,
+        gender: params['gender']?.toString() ?? '',
+        month: (params['month'] as num?)?.toInt() ?? 0,
+        day: (params['day'] as num?)?.toInt() ?? 0,
+        hour: (params['hour'] as num?)?.toInt() ?? 0,
+        minute: (params['minute'] as num?)?.toInt() ?? 0,
+        degree: (params['degree'] as num?)?.toDouble(),
+        declination: (params['declination'] as num?)?.toDouble() ?? 0,
+        trigram: params['trigram']?.toString() ?? '',
+        name: params['name']?.toString() ?? '',
+      );
+      if (!mounted) return;
+      setState(() {
+        _chart = chart;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (e.isUnauthorized) {
+        await AuthStore.instance?.forceLogout();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  /// 保存用的入参：回放时按记录原参存（档案可能已变，不拿现在的覆盖过去的），
+  /// 否则取当前命理档案 + 房屋档案
+  Map<String, dynamic> _recordParams() {
+    final replay = _replayParams;
+    if (replay != null) return replay;
+
+    final record = _store.record;
+    final house = widget.house;
+    return <String, dynamic>{
+      'year': record?.year ?? 0,
+      'gender': record?.gender ?? '',
+      'month': record?.month ?? 0,
+      'day': record?.day ?? 0,
+      'hour': record?.hour ?? 0,
+      'minute': record?.minute ?? 0,
+      'declination': house?.declination ?? 0,
+      'name': record?.name ?? '',
+      if (house?.degree != null) 'degree': house!.degree,
+    };
+  }
+
+  String get _recordTitle => '八宅 · ${_chart?.zhaiGua.name ?? ''}';
+
+  String get _recordSummary {
+    final chart = _chart;
+    if (chart == null) return '';
+    return '命卦${chart.mingGua.name} · 宅卦${chart.zhaiGua.name}';
+  }
+
   // ---------------------------------------------------------------- 骨架
   @override
   Widget build(BuildContext context) {
@@ -199,11 +291,16 @@ class _BazhaiPageState extends State<BazhaiPage> {
           ),
         ),
         const Text('八宅吉方', style: AppText.pageTitle),
-        // 占位：与左侧返回图标等宽，保证标题居中
-        const Padding(
-          padding: EdgeInsets.all(6),
-          child: Icon(Icons.grid_view_rounded, size: 20, color: AppColors.ink),
-        ),
+        // 右侧槽位：阅读类产品的书签位——存这次测算的入参；
+        // 没有盘时留占位保持标题居中
+        _chart == null
+            ? const SizedBox(width: 34, height: 34)
+            : SaveRecordButton(
+                kind: 'bazhai',
+                title: _recordTitle,
+                summary: _recordSummary,
+                params: _recordParams(),
+              ),
       ],
     );
   }

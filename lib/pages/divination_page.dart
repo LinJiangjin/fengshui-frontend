@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
+import '../widgets/save_record_button.dart';
 
 /// 问卦：六爻纳甲 / 梅花易数
 ///
@@ -15,7 +16,11 @@ import '../widgets/app_icons.dart';
 ///
 /// 页面不做任何吉凶推导，只把后端下发的内容排好版。
 class DivinationPage extends StatefulWidget {
-  const DivinationPage({super.key});
+  const DivinationPage({super.key, this.initialParams});
+
+  /// 从测算记录打开时的入参快照；非 null 时按它直接装卦
+  /// （同样的爻值 / 数字 + 同样的起卦时刻 = 同一份卦例）
+  final Map<String, dynamic>? initialParams;
 
   @override
   State<DivinationPage> createState() => _DivinationPageState();
@@ -46,12 +51,54 @@ class _DivinationPageState extends State<DivinationPage> {
   final TextEditingController _n2 = TextEditingController();
   final TextEditingController _n3 = TextEditingController();
 
+  /// 当前这一卦的起卦时刻（记录回放时是记录里存的时刻，不是现在）
+  String _when = '';
+
+  /// 从测算记录回放时的入参快照；非 null 时保存按钮按它存。
+  /// 用户当场另起一卦即清掉——回放的和新摇的不是同一卦。
+  Map<String, dynamic>? _replayParams;
+
   @override
   void dispose() {
     _n1.dispose();
     _n2.dispose();
     _n3.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final ip = widget.initialParams;
+    if (ip != null) {
+      _replayParams = ip;
+      _replay(ip);
+    }
+  }
+
+  /// 按存的入参重装一卦：爻值 / 数字回填进输入区，起卦时刻也按记录里
+  /// 那个算——服务端装卦是纯函数，同样的入参必得同一份卦例。
+  void _replay(Map<String, dynamic> params) {
+    final mode = params['mode']?.toString() ?? 'liuyao';
+    _topic = params['topic']?.toString() ?? '决策';
+    final when = params['when']?.toString() ?? '';
+
+    if (mode == 'meihua') {
+      _mode = _Mode.meihua;
+      final numbers = (params['numbers'] as List?)
+              ?.map((e) => (e as num).toInt())
+              .toList() ??
+          const <int>[];
+      if (numbers.isNotEmpty) _n1.text = '${numbers[0]}';
+      if (numbers.length > 1) _n2.text = '${numbers[1]}';
+      if (numbers.length > 2) _n3.text = '${numbers[2]}';
+    } else {
+      _mode = _Mode.liuyao;
+      final lines =
+          (params['lines'] as List?)?.map((e) => (e as num).toInt()).toList();
+      if (lines != null && lines.length == 6) _lines = lines;
+    }
+    _ask(when: when.isEmpty ? null : when);
   }
 
   void _switchMode(_Mode mode) {
@@ -61,6 +108,8 @@ class _DivinationPageState extends State<DivinationPage> {
       _chart = null;
       _error = null;
       _lines = null;
+      // 换了模式就是另起一卦，回放快照作废
+      _replayParams = null;
     });
   }
 
@@ -71,6 +120,8 @@ class _DivinationPageState extends State<DivinationPage> {
   /// 得 9 老阳 / 8 少阴 / 7 少阳 / 6 老阴。这一约定只在客户端出现，
   /// 服务端只认 6/7/8/9 这四个结果值。
   void _shake() {
+    // 当场摇的卦：回放快照作废，保存按钮之后存这份新入参
+    _replayParams = null;
     setState(() => _shaking = true);
     final rand = DateTime.now().microsecondsSinceEpoch;
     final values = <int>[];
@@ -95,6 +146,8 @@ class _DivinationPageState extends State<DivinationPage> {
   }
 
   void _manualLines() {
+    // 手动指定也是另起一卦：回放快照作废
+    _replayParams = null;
     final picked = List<int>.from(_lines ?? <int>[8, 8, 8, 8, 8, 8]);
     showModalBottomSheet<void>(
       context: context,
@@ -112,13 +165,22 @@ class _DivinationPageState extends State<DivinationPage> {
     );
   }
 
-  Future<void> _ask() async {
-    final when =
-        '${DateTime.now().year.toString().padLeft(4, '0')}-'
-        '${DateTime.now().month.toString().padLeft(2, '0')}-'
-        '${DateTime.now().day.toString().padLeft(2, '0')} '
-        '${DateTime.now().hour.toString().padLeft(2, '0')}:'
-        '${DateTime.now().minute.toString().padLeft(2, '0')}';
+  static String _nowString() =>
+      '${DateTime.now().year.toString().padLeft(4, '0')}-'
+      '${DateTime.now().month.toString().padLeft(2, '0')}-'
+      '${DateTime.now().day.toString().padLeft(2, '0')} '
+      '${DateTime.now().hour.toString().padLeft(2, '0')}:'
+      '${DateTime.now().minute.toString().padLeft(2, '0')}';
+
+  /// 用户当场起的一卦（区别于记录回放）：清掉回放快照再算
+  Future<void> _askLive() async {
+    _replayParams = null;
+    await _ask();
+  }
+
+  /// [when] 非空时按给定时刻装卦（记录回放），为空按当前时刻
+  Future<void> _ask({String? when}) async {
+    _when = when ?? _nowString();
     setState(() {
       _loading = true;
       _error = null;
@@ -159,6 +221,42 @@ class _DivinationPageState extends State<DivinationPage> {
         .toList();
     final parsed = raw.map(int.tryParse).whereType<int>().toList();
     return parsed.length >= 2 ? parsed : null;
+  }
+
+  // ------------------------------------------------------- 测算记录
+  /// 保存用的入参：回放时按记录原参存，否则取当前这一卦的爻值 / 数字。
+  /// 装卦是纯函数，这份入参足以完整还原同一份卦例。
+  Map<String, dynamic> _recordParams() {
+    final replay = _replayParams;
+    if (replay != null) return replay;
+
+    if (_mode == _Mode.liuyao) {
+      return <String, dynamic>{
+        'mode': 'liuyao',
+        'lines': _lines ?? const <int>[],
+        'when': _when,
+        'topic': _topic,
+      };
+    }
+    return <String, dynamic>{
+      'mode': 'meihua',
+      'numbers': _numbersOrNull() ?? const <int>[],
+      'when': _when,
+      'topic': _topic,
+    };
+  }
+
+  String get _recordTitle {
+    final c = _chart;
+    if (c == null) return '问卦';
+    final gua = c.ben?.name ?? c.zhu?.name ?? '';
+    return gua.isEmpty ? c.modeName : '${c.modeName} · $gua';
+  }
+
+  String get _recordSummary {
+    final c = _chart;
+    if (c == null) return '';
+    return '${c.topic} · ${c.when}';
   }
 
   // ------------------------------------------------------- 页面
@@ -204,11 +302,15 @@ class _DivinationPageState extends State<DivinationPage> {
           ),
         ),
         const Text('问卦', style: AppText.pageTitle),
-        const Padding(
-          padding: EdgeInsets.all(6),
-          child:
-              AppIcon(AppIconKind.hexagram, size: 20, color: AppColors.ink),
-        ),
+        // 右侧槽位：阅读类产品的书签位——存这一卦的入参；没卦可存
+        _chart == null
+            ? const SizedBox(width: 34, height: 34)
+            : SaveRecordButton(
+                kind: 'divination',
+                title: _recordTitle,
+                summary: _recordSummary,
+                params: _recordParams(),
+              ),
       ],
     );
   }
@@ -391,7 +493,7 @@ class _DivinationPageState extends State<DivinationPage> {
             child: _actionButton(
               label: '起卦',
               primary: true,
-              onTap: _ask,
+              onTap: _askLive,
             ),
           ),
         ],

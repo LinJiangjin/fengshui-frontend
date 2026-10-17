@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
+import '../widgets/save_record_button.dart';
 
 /// S3 · 风水诊断报告
 class ReportPage extends StatelessWidget {
@@ -14,11 +15,22 @@ class ReportPage extends StatelessWidget {
     required this.diagnosis,
     this.onRemeasure,
     this.onViewLayout,
+    this.onViewXuankong,
+    this.recordParams,
   });
 
   final Diagnosis diagnosis;
   final VoidCallback? onRemeasure;
   final VoidCallback? onViewLayout;
+
+  /// 去看玄空宅运盘。为 null 时底部只保留「重新测量 / 布局建议」两个按钮
+  /// （诊断报告不强制用户接着看玄空）。
+  final VoidCallback? onViewXuankong;
+
+  /// 「保存这次测算」的入参快照；为 null 时头部右侧保留分享图标占位。
+  /// 诊断的日家紫白一日一换，快照里含测算当天的月/日，
+  /// 回放才是当时那份报告。
+  final Map<String, dynamic>? recordParams;
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +78,17 @@ class ReportPage extends StatelessWidget {
           child: const AppIcon(AppIconKind.back, size: 22, color: AppColors.ink),
         ),
         const Text('风水诊断报告', style: AppText.pageTitle),
-        const AppIcon(AppIconKind.share, size: 20, color: AppColors.ink),
+        // 右侧槽位：阅读类产品的书签位——存这次诊断的入参；
+        // 无快照（缺档案等兜底路径打开的）时保留分享图标占位
+        recordParams == null
+            ? const AppIcon(AppIconKind.share, size: 20, color: AppColors.ink)
+            : SaveRecordButton(
+                kind: 'diagnose',
+                title: '诊断 · ${diagnosis.houseName}',
+                summary:
+                    '${diagnosis.orientation.title} · ${diagnosis.daily?.date ?? ''}',
+                params: recordParams!,
+              ),
       ],
     );
   }
@@ -331,6 +353,27 @@ class ReportPage extends StatelessWidget {
               ),
             ),
           ),
+          // 宅运盘入口：罗盘已实测、房屋档案里有建宅年份时才给，
+          // 否则玄空页还得让用户补一遍坐向与年份，等于把活儿推回给用户
+          if (onViewXuankong != null) ...[
+            const SizedBox(width: AppDimens.gapM),
+            Expanded(
+              child: GestureDetector(
+                onTap: onViewXuankong,
+                child: Container(
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: AppColors.btnSecondary,
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('玄空宅运盘',
+                      style: AppText.button14
+                          .copyWith(color: AppColors.inkSoft)),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

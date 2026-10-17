@@ -20,6 +20,7 @@ class HomePage extends StatelessWidget {
     this.updatedAt,
     this.onRefresh,
     this.onDeleteAccount,
+    this.onOpenRecords,
   });
 
   final Diagnosis diagnosis;
@@ -45,6 +46,9 @@ class HomePage extends StatelessWidget {
 
   /// 最近一次算出的时间（用于卡片右上角的更新文案）
   final DateTime? updatedAt;
+
+  /// 打开测算记录列表（账户面板入口；保存过的测算按参数回放重算）
+  final VoidCallback? onOpenRecords;
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +161,7 @@ class HomePage extends StatelessWidget {
           user: user,
           onLogout: onLogout,
           onDeleteAccount: onDeleteAccount,
+          onOpenRecords: onOpenRecords,
         ),
       ],
     );

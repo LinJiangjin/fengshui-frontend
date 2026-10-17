@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
+import '../widgets/save_record_button.dart';
 
 /// 合婚配对：生肖合婚 / 八字合婚
 ///
@@ -13,7 +14,10 @@ import '../widgets/app_icons.dart';
 /// 所有关系（六合 / 六冲 / 六害 / 三合 / 天干五合 / 喜用互补）
 /// 都由服务端确定性算出。
 class MarriagePage extends StatefulWidget {
-  const MarriagePage({super.key});
+  const MarriagePage({super.key, this.initialParams});
+
+  /// 从测算记录打开时的入参快照；非 null 时按它回填双方输入并直接重算
+  final Map<String, dynamic>? initialParams;
 
   @override
   State<MarriagePage> createState() => _MarriagePageState();
@@ -79,11 +83,47 @@ class _MarriagePageState extends State<MarriagePage> {
   bool _loading = false;
   String? _error;
 
+  /// 从测算记录回放时的入参快照；非 null 时保存按钮按它存。
+  /// 用户改动任一方输入即清掉——回放的和现填的不是同一对。
+  Map<String, dynamic>? _replayParams;
+
   @override
   void dispose() {
     _a.dispose();
     _b.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final ip = widget.initialParams;
+    if (ip != null) {
+      _replayParams = ip;
+      _replay(ip);
+    }
+  }
+
+  /// 按存的入参回填双方输入并重算（与保存时同一份请求，结果必然一致）
+  void _replay(Map<String, dynamic> params) {
+    _mode = params['mode'] == 'bazi' ? _Mode.bazi : _Mode.zodiac;
+    _fillParty(_a, params['a']);
+    _fillParty(_b, params['b']);
+    _submit();
+  }
+
+  void _fillParty(_PartyInput p, Object? raw) {
+    if (raw is! Map) return;
+    final m = raw.cast<String, dynamic>();
+    p.year.text = '${m['year'] ?? ''}';
+    p.month.text = '${m['month'] ?? ''}';
+    p.day.text = '${m['day'] ?? ''}';
+    final hour = m['hour'];
+    if (hour != null) p.hour.text = '$hour';
+    final lng = m['longitude'];
+    if (lng != null) p.lng.text = '$lng';
+    final gender = m['gender']?.toString();
+    if (gender != null && (gender == '男' || gender == '女')) p.gender = gender;
   }
 
   void _switchMode(_Mode mode) {
@@ -92,7 +132,15 @@ class _MarriagePageState extends State<MarriagePage> {
       _mode = mode;
       _result = null;
       _error = null;
+      // 换了模式就是另一份输入，回放快照作废
+      _replayParams = null;
     });
+  }
+
+  /// 用户当场点「看配对」（区别于记录回放）：清掉回放快照再算
+  Future<void> _submitLive() async {
+    _replayParams = null;
+    await _submit();
   }
 
   Future<void> _submit() async {
@@ -133,6 +181,33 @@ class _MarriagePageState extends State<MarriagePage> {
     }
   }
 
+  // ---------------------------------------------------------------- 测算记录
+  /// 保存用的入参：回放时按记录原参存，否则取双方当前输入
+  /// （与发给 `/marriage` 的 payload 同构，重放即还原）
+  Map<String, dynamic> _recordParams() {
+    final replay = _replayParams;
+    if (replay != null) return replay;
+
+    final full = _mode == _Mode.bazi;
+    return <String, dynamic>{
+      'mode': full ? 'bazi' : 'zodiac',
+      'a': _a.toPayload(full: full),
+      'b': _b.toPayload(full: full),
+    };
+  }
+
+  String get _recordTitle {
+    final r = _result;
+    if (r == null) return '合婚配对';
+    return '合婚 · ${r.a.zodiac}与${r.b.zodiac}';
+  }
+
+  String get _recordSummary {
+    final r = _result;
+    if (r == null) return '';
+    return '${r.modeName} · ${r.level}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -155,7 +230,7 @@ class _MarriagePageState extends State<MarriagePage> {
                 SizedBox(
                   width: double.infinity,
                   child: _actionButton(label: '看配对', primary: true,
-                      onTap: _submit),
+                      onTap: _submitLive),
                 ),
                 const SizedBox(height: AppDimens.gapL),
                 ..._resultBody(),
@@ -181,10 +256,15 @@ class _MarriagePageState extends State<MarriagePage> {
           ),
         ),
         const Text('合婚配对', style: AppText.pageTitle),
-        const Padding(
-          padding: EdgeInsets.all(6),
-          child: AppIcon(AppIconKind.heart, size: 20, color: AppColors.ink),
-        ),
+        // 右侧槽位：阅读类产品的书签位——存这一次配对的入参；没结果可存
+        _result == null
+            ? const SizedBox(width: 34, height: 34)
+            : SaveRecordButton(
+                kind: 'marriage',
+                title: _recordTitle,
+                summary: _recordSummary,
+                params: _recordParams(),
+              ),
       ],
     );
   }

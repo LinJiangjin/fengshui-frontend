@@ -12,6 +12,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/city_picker_sheet.dart';
+import '../widgets/save_record_button.dart';
 
 /// S4 · 命理档案
 ///
@@ -29,6 +30,7 @@ class BaziPage extends StatefulWidget {
     this.gender,
     this.longitude,
     this.name,
+    this.initialParams,
   });
 
   /// 出生年（公历）；为 null 表示尚未录入
@@ -48,6 +50,10 @@ class BaziPage extends StatefulWidget {
 
   /// 姓名（可选）
   final String? name;
+
+  /// 从测算记录打开时的出生信息快照；非 null 时直接按它排盘，
+  /// 不再等用户在表单里录一遍（记录回放：参数重算，不是结果快照）
+  final Map<String, dynamic>? initialParams;
 
   @override
   State<BaziPage> createState() => _BaziPageState();
@@ -99,6 +105,33 @@ class _BaziPageState extends State<BaziPage> {
     super.initState();
     _store.addListener(_onStoreChanged);
     final w = widget;
+    // 从测算记录打开：按存的出生信息直接排盘（同一份入参，结果以后端当前规则为准）
+    final ip = widget.initialParams;
+    if (ip != null) {
+      final record = BaziRecord(
+        year: (ip['year'] as num?)?.toInt() ?? 0,
+        month: (ip['month'] as num?)?.toInt() ?? 0,
+        day: (ip['day'] as num?)?.toInt() ?? 0,
+        hour: (ip['hour'] as num?)?.toInt() ?? 0,
+        minute: (ip['minute'] as num?)?.toInt() ?? 0,
+        gender: ip['gender'] as String? ?? '男',
+        longitude: (ip['longitude'] as num?)?.toDouble() ?? 120.0,
+        name: ip['name'] as String? ?? '',
+        province: ip['province'] as String? ?? '',
+        city: ip['city'] as String? ?? '',
+      );
+      if (record.year <= 0 || record.month <= 0 || record.day <= 0) {
+        // 早期记录或参数损坏：不发请求，让用户在表单里补齐
+        setState(() => _error = '这条记录的出生信息不完整，请补齐后重新排盘');
+        return;
+      }
+      // 表单一并回填：回放后点「重新录入出生信息」看到的应是这份出生信息，
+      // 而不是一张空表单——否则用户会撞一句「请先选择出生日期与时刻」
+      _applyRecord(record);
+      _input = record;
+      _load();
+      return;
+    }
     // 外部传入了完整出生信息（如从别处跳转进来）：直接排盘
     if (w.year != null && w.month != null && w.day != null && w.hour != null) {
       _longitude = w.longitude;
@@ -652,6 +685,35 @@ class _BaziPageState extends State<BaziPage> {
     );
   }
 
+  /// 保存「八字 · 紫微」记录的入参：与 _load 发给 /bazi 的同一份出生信息。
+  /// 紫微盘在同一页用同一份信息排，存一次两边都能回看。
+  /// 出生地只存省市名（展示用，计算认 longitude），回放时按名查回坐标。
+  Map<String, dynamic> _recordParams() {
+    final i = _input;
+    return {
+      'year': i?.year ?? 0,
+      'month': i?.month ?? 0,
+      'day': i?.day ?? 0,
+      'hour': i?.hour ?? 0,
+      'minute': i?.minute ?? 0,
+      'gender': i?.gender ?? '男',
+      'longitude': i?.longitude ?? 120.0,
+      'name': i?.name ?? '',
+      'province': i?.province ?? '',
+      'city': i?.city ?? '',
+    };
+  }
+
+  String _recordTitle() {
+    final i = _input;
+    if (i == null) return '八字排盘';
+    final prefix = i.gender == '女' ? '坤造' : '乾造';
+    final hh = i.hour.toString().padLeft(2, '0');
+    final mm = i.minute.toString().padLeft(2, '0');
+    return '$prefix ${i.year}-${i.month.toString().padLeft(2, '0')}-'
+        '${i.day.toString().padLeft(2, '0')} $hh:$mm';
+  }
+
   Widget _pillarCard(BaziProfile profile) {
     return Container(
       padding: const EdgeInsets.all(AppDimens.gapXL),
@@ -667,7 +729,27 @@ class _BaziPageState extends State<BaziPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('生辰八字', style: AppText.cardTitle),
-              Text(profile.birth.summary, style: AppText.label11),
+              Flexible(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        profile.birth.summary,
+                        style: AppText.label11,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SaveRecordButton(
+                      kind: 'bazi',
+                      title: _recordTitle(),
+                      summary: profile.pillars.map((p) => p.pillar).join(' '),
+                      params: _recordParams(),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -1587,6 +1669,12 @@ class _BaziPageState extends State<BaziPage> {
 
   Widget _bottomBar() {
     final hasProfile = _profile != null;
+    // 请求在飞时按钮禁用：这时候 _profile 还是 null，按钮写着「开始排盘」，
+    // 点了会拿一张没填过的表单去 _submit，撞一句「请先选择出生日期与时刻」
+    // （从测算记录回放打开的页面正是这个场景）
+    final busy = _loading;
+    final label =
+        hasProfile ? '重新录入出生信息' : (busy ? '排盘中…' : '开始排盘');
     return Container(
       height: AppDimens.bottomBarH,
       decoration: const BoxDecoration(
@@ -1596,31 +1684,35 @@ class _BaziPageState extends State<BaziPage> {
       padding: const EdgeInsets.fromLTRB(
           AppDimens.pagePadH, 14, AppDimens.pagePadH, 24),
       child: GestureDetector(
-        onTap: () {
-          if (hasProfile) {
-            // 回到录入表单，并保留这次已录入的出生信息供用户微调
-            setState(() {
-              _profile = null;
-              _input = null;
-              _error = null;
-              _syncWarning = null;
-              _ziwei = null;
-              _ziweiError = null;
-            });
-          } else {
-            _submit();
-          }
-        },
+        onTap: busy
+            ? null
+            : () {
+                if (hasProfile) {
+                  // 回到录入表单，并保留这次已录入的出生信息供用户微调
+                  setState(() {
+                    _profile = null;
+                    _input = null;
+                    _error = null;
+                    _syncWarning = null;
+                    _ziwei = null;
+                    _ziweiError = null;
+                  });
+                } else {
+                  _submit();
+                }
+              },
         child: Container(
           height: 50,
           decoration: BoxDecoration(
-            color: AppColors.primary,
+            color: busy && !hasProfile ? AppColors.btnSecondary : AppColors.primary,
             borderRadius: BorderRadius.circular(25),
           ),
           alignment: Alignment.center,
           child: Text(
-            hasProfile ? '重新录入出生信息' : '开始排盘',
-            style: AppText.button14,
+            label,
+            style: AppText.button14.copyWith(
+              color: busy && !hasProfile ? AppColors.muted : null,
+            ),
           ),
         ),
       ),

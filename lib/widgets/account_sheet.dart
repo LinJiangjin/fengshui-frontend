@@ -6,7 +6,7 @@ import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import 'app_icons.dart';
 
-/// 账户入口（页头头像按钮）：点开账户面板，提供退出登录 / 注销账号。
+/// 账户入口（页头头像按钮）：点开账户面板，提供测算记录 / 退出登录 / 注销账号。
 ///
 /// 首页正常态放在页头右上角；首页空态（无房屋 / 无坐向 / 网络出错）
 /// 也必须放一个，否则用户没有地方可以退出登录或注销账号。
@@ -16,6 +16,7 @@ class AccountAvatarButton extends StatelessWidget {
     this.user,
     required this.onLogout,
     this.onDeleteAccount,
+    this.onOpenRecords,
   });
 
   /// 当前登录用户；为 null 时面板只显示退出按钮
@@ -26,6 +27,9 @@ class AccountAvatarButton extends StatelessWidget {
 
   /// 注销账号：返回 null 表示成功，非 null 是可展示给用户的错误文案。
   final Future<String?> Function()? onDeleteAccount;
+
+  /// 打开测算记录列表（保存过的测算，按参数回放重算）
+  final VoidCallback? onOpenRecords;
 
   @override
   Widget build(BuildContext context) {
@@ -117,6 +121,30 @@ class AccountAvatarButton extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 24),
+              // 测算记录入口：常驻动作里唯一的「看自己的数据」，放最前面
+              if (onOpenRecords != null) ...[
+                SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        Navigator.of(sheetContext).pop('records'),
+                    icon: const AppIcon(AppIconKind.bookmark,
+                        size: 17, color: AppColors.primary),
+                    label: Text('测算记录',
+                        style: AppText.medium15
+                            .copyWith(color: AppColors.primary)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primarySoftBorder),
+                      backgroundColor: AppColors.primarySoftBg,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               SizedBox(
                 height: 48,
                 child: OutlinedButton.icon(
@@ -161,7 +189,9 @@ class AccountAvatarButton extends StatelessWidget {
 
     // 面板关闭后 context 才可用：跨过 await 必须重新确认宿主还在
     if (!context.mounted) return;
-    if (action == 'logout') {
+    if (action == 'records') {
+      onOpenRecords?.call();
+    } else if (action == 'logout') {
       onLogout();
     } else if (action == 'delete') {
       await _confirmDeleteAccount(context);
@@ -191,7 +221,7 @@ class AccountAvatarButton extends StatelessWidget {
             Text('注销后下列数据将被永久删除，无法恢复：', style: AppText.body13),
             SizedBox(height: 10),
             Text(
-              '· 账号与登录信息\n· 全部房屋档案与坐向数据\n· 命理档案（出生信息）',
+              '· 账号与登录信息\n· 全部房屋档案与坐向数据\n· 命理档案（出生信息）\n· 测算记录',
               style: AppText.body13,
             ),
             SizedBox(height: 12),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'models/diagnosis.dart';
 import 'models/house.dart';
+import 'models/record.dart';
 import 'pages/almanac_page.dart';
 import 'pages/bazi_page.dart';
 import 'pages/bazhai_page.dart';
@@ -16,6 +17,7 @@ import 'pages/library_page.dart';
 import 'pages/marriage_page.dart';
 import 'pages/phone_energy_page.dart';
 import 'pages/login_page.dart';
+import 'pages/records_page.dart';
 import 'pages/report_page.dart';
 import 'pages/xuankong_page.dart';
 import 'services/api_client.dart';
@@ -346,6 +348,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             house: _house,
             onApplyRooms: _applyLayout,
           ))),
+      // 罗盘 → 诊断 → 玄空 三段串起来：看完报告直接进宅运盘，
+      // 坐向刚从罗盘写进房屋档案、建宅年份档案里也有，两边都不用再填
+      onViewXuankong: () {
+        Navigator.of(context).pop();
+        _openXuankong(initialMode: XuankongMode.house);
+      },
+      // 存诊断入参快照（含测算当天的月/日），保存后可从测算记录回放
+      recordParams: _diagnoseParams(degree: degree, declination: declination),
     )));
     return d;
   }
@@ -441,11 +451,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     await Navigator.of(context).push<void>(_page(const AlmanacPage()));
   }
 
-  /// 打开玄空飞星（月盘 / 宅运盘）。
-  ///
-  /// 与黄历一样是纯计算接口，不做前置校验；但已实测坐向的房屋会被带过去
-  /// 作为宅运盘的坐向来源（比手选卦准，还能提示兼向）。
-  /// 未测量时页面内提供「去测量坐向」的引导，走 onOpenCompass 回到罗盘 tab。
   /// 打开问卦（六爻 / 梅花易数）。
   ///
   /// 纯计算接口，不需要登录，也不依赖房屋或命理档案。
@@ -471,14 +476,148 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     await Navigator.of(context).push<void>(_page(const MarriagePage()));
   }
 
-  Future<void> _openXuankong() async {
+  /// 打开玄空飞星。
+  ///
+  /// 纯计算接口，不做前置校验；但已实测坐向的房屋会被带过去作为宅运盘的
+  /// 坐向来源（比手选卦准，还能提示兼向），建宅年份也一起带过去定元运。
+  /// 未测量时页面内提供「去测量坐向」的引导，走 onOpenCompass 回到罗盘 tab。
+  ///
+  /// [initialMode] 由调用方决定：从户型诊断报告过来时传
+  /// [XuankongMode.house]，用户要看的直接就是宅运盘；
+  /// 从首页进来默认月盘（当月飞星，实用性更高）。
+  Future<void> _openXuankong({
+    XuankongMode initialMode = XuankongMode.month,
+    Map<String, dynamic>? initialParams,
+  }) async {
     await Navigator.of(context).push<void>(_page(XuankongPage(
       house: _house,
+      initialMode: initialMode,
+      initialParams: initialParams,
       onOpenCompass: () {
         Navigator.of(context).pop();
         setState(() => _tab = 1);
       },
     )));
+  }
+
+  /// 打开测算记录列表（账户面板入口）。
+  Future<void> _openRecords() async {
+    await Navigator.of(context)
+        .push<void>(_page(RecordsPage(onOpenRecord: _openRecord)));
+  }
+
+  /// 打开一条测算记录：按 kind 分发到对应测算页，params 原样带回。
+  ///
+  /// 回放的是**参数**不是快照：各测算接口都是无状态纯计算，页面按 params
+  /// 重新请求，结果以后端当前规则为准（引擎规则随 RULES_VERSION 改版，
+  /// 存快照反而会留下过期判词）。
+  Future<void> _openRecord(CalcRecord record) async {
+    final p = record.params;
+    switch (record.kind) {
+      case 'bazi':
+        await Navigator.of(context)
+            .push<void>(_page(BaziPage(initialParams: p)));
+      case 'bazhai':
+        await Navigator.of(context).push<void>(_page(BazhaiPage(
+          house: _house,
+          initialParams: p,
+          onOpenBazi: () {
+            Navigator.of(context).pop();
+            setState(() => _tab = 3);
+          },
+          onOpenCompass: () {
+            Navigator.of(context).pop();
+            setState(() => _tab = 1);
+          },
+        )));
+      case 'xuankong':
+        await _openXuankong(initialParams: p);
+      case 'almanac':
+        await Navigator.of(context)
+            .push<void>(_page(AlmanacPage(initialParams: p)));
+      case 'divination':
+        await Navigator.of(context)
+            .push<void>(_page(DivinationPage(initialParams: p)));
+      case 'marriage':
+        await Navigator.of(context)
+            .push<void>(_page(MarriagePage(initialParams: p)));
+      case 'diagnose':
+        await _openDiagnoseRecord(p);
+    }
+  }
+
+  /// 回放一条户型诊断记录：按存的入参重新算一遍再开报告。
+  ///
+  /// 诊断依赖房屋档案，但记录里存的是当时那份入参快照（含测算当天的
+  /// 月/日——日家紫白一日一换），所以这里不读当前房屋，按记录算，
+  /// 回放的才是用户当时看到的那份报告。
+  Future<void> _openDiagnoseRecord(Map<String, dynamic> p) async {
+    final month = (p['month'] as num?)?.toInt();
+    final day = (p['day'] as num?)?.toInt();
+    if (month == null || day == null) {
+      _toast('这条记录缺少测算日期，无法回放');
+      return;
+    }
+    try {
+      final d = await _api.diagnose(
+        degree: (p['degree'] as num?)?.toDouble() ?? 0,
+        declination: (p['declination'] as num?)?.toDouble() ?? 0,
+        houseName: p['house_name'] as String? ?? '房屋',
+        layout: p['layout'] as String? ?? '',
+        area: (p['area'] as num?)?.toDouble() ?? 0,
+        year: (p['year'] as num?)?.toInt() ?? DateTime.now().year,
+        month: month,
+        day: day,
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(_page(ReportPage(
+        diagnosis: d,
+        onRemeasure: () => Navigator.of(context).pop(),
+        onViewLayout: () => Navigator.of(context).push<void>(
+            _page(LayoutPage(
+            diagnosis: d,
+            house: _house,
+            onApplyRooms: _applyLayout,
+          ))),
+        onViewXuankong: () {
+          Navigator.of(context).pop();
+          _openXuankong(initialMode: XuankongMode.house);
+        },
+        recordParams: p,
+      )));
+    } catch (e) {
+      if (!mounted) return;
+      _toast('回放失败：$e');
+    }
+  }
+
+  /// 诊断请求的入参快照：保存「户型诊断」记录用。
+  ///
+  /// 日家紫白按测算当日推算，所以月份/日期一并存下；缺坐向返回 null
+  /// （没测量过的房屋出不了诊断，也就没有可存的对象）。
+  Map<String, dynamic>? _diagnoseParams({double? degree, double? declination}) {
+    final h = _house;
+    if (h == null) return null;
+    final d = degree ?? h.degree;
+    if (d == null) return null;
+    final now = DateTime.now();
+    return {
+      'degree': d,
+      'declination': declination ?? h.declination,
+      'year': h.year,
+      'house_name': h.displayName,
+      'layout': h.layout,
+      'area': h.area,
+      'month': now.month,
+      'day': now.day,
+    };
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
   }
 
   Route<T> _page<T>(Widget child) {
@@ -537,6 +676,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       user: _auth.user,
       onLogout: _logout,
       onDeleteAccount: _deleteAccount,
+      onOpenRecords: _openRecords,
       onOpenHouses: _openHouses,
       onRefresh: _onRefresh,
       onQuickAction: (i) {
@@ -563,6 +703,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       house: _house,
                       onApplyRooms: _applyLayout,
                     ))),
+                recordParams: _diagnoseParams(),
               )));
             }
             break;
@@ -637,6 +778,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               user: _auth.user,
               onLogout: _logout,
               onDeleteAccount: _deleteAccount,
+              onOpenRecords: _openRecords,
             ),
           ),
         ),

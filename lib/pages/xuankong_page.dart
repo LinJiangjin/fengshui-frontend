@@ -10,6 +10,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
+import '../widgets/save_record_button.dart';
 
 /// S9 · 玄空飞星
 ///
@@ -29,7 +30,13 @@ import '../widgets/app_icons.dart';
 /// 引擎算出（引擎已与《四十八局旺山旺向》整表对拍），客户端**不做飞星推算**，
 /// 也不内置结果快照。顺逆的判据由后端一并下发，本页原样展示，便于追溯。
 class XuankongPage extends StatefulWidget {
-  const XuankongPage({super.key, this.house, this.onOpenCompass});
+  const XuankongPage({
+    super.key,
+    this.house,
+    this.onOpenCompass,
+    this.initialMode = XuankongMode.month,
+    this.initialParams,
+  });
 
   /// 当前房屋；已实测坐向时直接作为宅运盘的坐向来源（更准，且能提示兼向）
   final HouseProfile? house;
@@ -37,16 +44,27 @@ class XuankongPage extends StatefulWidget {
   /// 未实测坐向时跳到罗盘页测量（由外层切换 tab）
   final VoidCallback? onOpenCompass;
 
+  /// 初始展示哪个盘。从户型诊断报告跳过来时传 `XuankongMode.house`，
+  /// 用户要的是宅运盘，不该再让他手点一次 tab。
+  final XuankongMode initialMode;
+
+  /// 从测算记录打开时的入参快照；非 null 时按它直接起盘，
+  /// 而不是按当前日期 / 当前房屋档案（回放的是当时那一盘）
+  final Map<String, dynamic>? initialParams;
+
   @override
   State<XuankongPage> createState() => _XuankongPageState();
 }
 
-enum _Mode { month, house }
+enum XuankongMode { month, house }
 
 class _XuankongPageState extends State<XuankongPage> {
   final ApiClient _api = ApiClient();
 
-  _Mode _mode = _Mode.month;
+  XuankongMode _mode = XuankongMode.month;
+
+  /// 宅运盘是否已经请求过一次（切到该模式时才发首个请求）
+  bool _houseTouched = false;
 
   // ------------------------------------------------------------------ 月盘
   XuankongMonth? _month;
@@ -65,23 +83,74 @@ class _XuankongPageState extends State<XuankongPage> {
   /// 坐山卦（只知卦不知度数时的退路）
   String _sitTrigram = '坎';
 
-  /// 立宅 / 入宅年份，用于自动定元运
+  /// 立宅 / 入宅年份，用于自动定元运。
+  ///
+  /// **优先取房屋档案里的建宅年份**（诊断与八宅也都用 `house.year`），
+  /// 元运定错整张盘就错——八运与九运的盘面完全不同。
+  /// 只有未建档时才退回今年，并允许用户手动改。
   int _buildYear = DateTime.now().year;
 
-  /// 宅运盘是否已经请求过一次（切到该模式时才发首个请求）
-  bool _houseTouched = false;
+  /// 年份是否来自房屋档案（用于在界面上标明来源；用户手动改过后即为假）
+  bool _yearFromHouse = false;
 
   /// 只知卦时可选坐山：中宫无卦，故为八卦
   static const _trigrams = ['坎', '艮', '震', '巽', '离', '坤', '兑', '乾'];
 
   static const _levelRank = {'旺': 0, '平': 1, '煞': 2, '大凶': 3};
 
+  /// 宅运盘的回放入参快照。
+  ///
+  /// **任何手动编辑（坐山卦 / 罗盘开关 / 建宅年份）都会清掉它**：
+  /// 用户改了卦，当前这张盘就已经不是记录里那一张了，此时保存按钮
+  /// 改存当前 live 入参——否则会出现「改了卦但请求没变」的错配。
+  /// 月盘不需要快照——回放日期就落在 [_cursor] 上，参数自然还原。
+  Map<String, dynamic>? _recordHouse;
+
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _cursor = DateTime(now.year, now.month, now.day);
+
+    // 从测算记录打开：按存的入参直接起盘（当时那一盘）
+    final ip = widget.initialParams;
+    if (ip != null) {
+      _replay(ip);
+      return;
+    }
+
+    _mode = widget.initialMode;
     _useCompass = widget.house?.measured ?? false;
+    // 建宅年份随房屋档案一起带过来：宅运盘的元运由它决定，
+    // 若退回「今年」，2024 年前建的房会整整差一运
+    final houseYear = widget.house?.year;
+    if (houseYear != null && houseYear > 0) {
+      _buildYear = houseYear;
+      _yearFromHouse = true;
+    }
+    _loadMonth();
+    // 从诊断报告跳过来时初始就是宅运盘，这里要把首个请求发掉
+    if (_mode == XuankongMode.house && !_houseTouched) _loadHouse();
+  }
+
+  void _replay(Map<String, dynamic> params) {
+    if (params['mode'] == 'house') {
+      _mode = XuankongMode.house;
+      // 界面状态对齐到记录里的那一盘，用户能看出这是怎么起出来的
+      final trigram = params['trigram']?.toString() ?? '';
+      if (trigram.isNotEmpty) _sitTrigram = trigram;
+      final year = (params['build_year'] as num?)?.toInt();
+      if (year != null) _buildYear = year;
+      _useCompass = params['degree'] != null;
+      // 年份此刻来自记录而非房屋档案，来源标注要如实说
+      _yearFromHouse = false;
+      _recordHouse = params;
+      _loadHouseFromParams(params);
+      return;
+    }
+    final date = params['date']?.toString() ?? '';
+    final parsed = DateTime.tryParse(date);
+    if (parsed != null) _cursor = DateTime(parsed.year, parsed.month, parsed.day);
     _loadMonth();
   }
 
@@ -185,10 +254,47 @@ class _XuankongPageState extends State<XuankongPage> {
     }
   }
 
-  void _switchMode(_Mode mode) {
+  /// 从测算记录回放宅运盘：按存的入参直接起盘。
+  /// 不看当前房屋档案——坐向与建宅年份都可能已变，回放的是当时那一盘。
+  Future<void> _loadHouseFromParams(Map<String, dynamic> params) async {
+    _houseTouched = true;
+    setState(() {
+      _houseLoading = true;
+      _houseError = null;
+    });
+    try {
+      final chart = await _api.fetchXuankongHouse(
+        degree: (params['degree'] as num?)?.toDouble(),
+        declination: (params['declination'] as num?)?.toDouble() ?? 0.0,
+        trigram: params['trigram']?.toString() ?? '',
+        buildYear: (params['build_year'] as num?)?.toInt(),
+        name: params['name']?.toString() ?? '',
+      );
+      if (!mounted) return;
+      setState(() {
+        _house = chart;
+        _houseLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (await _handleApiError(e)) return;
+      if (!mounted) return;
+      setState(() {
+        _houseError = e.message;
+        _houseLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _houseError = e.toString();
+        _houseLoading = false;
+      });
+    }
+  }
+
+  void _switchMode(XuankongMode mode) {
     if (_mode == mode) return;
     setState(() => _mode = mode);
-    if (mode == _Mode.house && !_houseTouched) _loadHouse();
+    if (mode == XuankongMode.house && !_houseTouched) _loadHouse();
   }
 
   /// 当前房屋是否可用作坐向来源
@@ -198,6 +304,8 @@ class _XuankongPageState extends State<XuankongPage> {
     if (!on && !_canUseCompass) return;
     if (_useCompass == on) return;
     setState(() => _useCompass = on);
+    // 手动一改，当前盘就不再是记录里那一张：保存改存 live 入参
+    _recordHouse = null;
     _loadHouse();
   }
 
@@ -207,13 +315,19 @@ class _XuankongPageState extends State<XuankongPage> {
       _sitTrigram = tri;
       _useCompass = false;
     });
+    _recordHouse = null;
     _loadHouse();
   }
 
   void _shiftBuildYear(int delta) {
     final next = (_buildYear + delta).clamp(1864, 2100);
     if (next == _buildYear) return;
-    setState(() => _buildYear = next);
+    setState(() {
+      _buildYear = next;
+      // 手动一改，年份就不再是档案里的那个了，来源标注要跟着变
+      _yearFromHouse = false;
+    });
+    _recordHouse = null;
     _loadHouse();
   }
 
@@ -222,6 +336,62 @@ class _XuankongPageState extends State<XuankongPage> {
   List<T?> _cells<T>(List<T> palaces, String Function(T) direction) {
     final map = <String, T>{for (final p in palaces) direction(p): p};
     return [for (final d in PalaceGrid.fixedOrder) map[d]];
+  }
+
+  // ---------------------------------------------------------------- 测算记录
+  /// 保存用的入参：回放时按记录原参存，否则取当前查询条件。
+  /// 宅运盘的回放快照被手动编辑清掉后，这里自动改存 live 入参。
+  Map<String, dynamic> _recordParams() {
+    if (_mode == XuankongMode.house) {
+      final snapshot = _recordHouse;
+      if (snapshot != null) return snapshot;
+
+      final h = widget.house;
+      final useCompass = _useCompass && (h?.measured ?? false);
+      return <String, dynamic>{
+        'mode': 'house',
+        'build_year': _buildYear,
+        if (useCompass) ...<String, dynamic>{
+          'degree': h!.degree,
+          'declination': h.declination,
+          'name': h.displayName,
+        } else
+          'trigram': _sitTrigram,
+      };
+    }
+    return <String, dynamic>{
+      'mode': 'month',
+      'date': _ymd(_cursor),
+    };
+  }
+
+  String get _recordTitle {
+    if (_mode == XuankongMode.house) {
+      final chart = _house;
+      if (chart != null && chart.name.isNotEmpty) return '玄空宅运 · ${chart.name}';
+      final snapshot = _recordHouse;
+      final trigram = snapshot?['trigram']?.toString();
+      if (trigram != null && trigram.isNotEmpty) return '玄空宅运 · $trigram宅';
+      return '玄空宅运 · $_sitTrigram宅';
+    }
+    return '玄空月盘 · ${_ymd(_cursor)}';
+  }
+
+  String get _recordSummary {
+    if (_mode == XuankongMode.house) {
+      final chart = _house;
+      if (chart == null) return '';
+      final yun = chart.yun;
+      final pattern = chart.pattern;
+      final parts = <String>[
+        if (yun != null) yun.name,
+        if (pattern != null) pattern.name,
+      ];
+      return parts.join(' · ');
+    }
+    final m = _month;
+    if (m == null) return '';
+    return '${m.monthName} · 月白${m.centerStarName}入中';
   }
 
   // ---------------------------------------------------------------- 骨架
@@ -242,7 +412,7 @@ class _XuankongPageState extends State<XuankongPage> {
                   const SizedBox(height: AppDimens.gapL),
                   _modeSwitch(),
                   const SizedBox(height: AppDimens.gapL),
-                  if (_mode == _Mode.month) ..._monthBody() else ..._houseBody(),
+                  if (_mode == XuankongMode.month) ..._monthBody() else ..._houseBody(),
                   const SizedBox(height: AppDimens.gapL),
                   _footNote(),
                 ],
@@ -268,18 +438,19 @@ class _XuankongPageState extends State<XuankongPage> {
           ),
         ),
         const Text('玄空飞星', style: AppText.pageTitle),
-        // 占位：与左侧返回图标等宽，保证标题居中
-        const Padding(
-          padding: EdgeInsets.all(6),
-          child: AppIcon(AppIconKind.flyingStar,
-              size: 20, color: AppColors.ink),
+        // 右侧槽位：阅读类产品的书签位——存这一盘的入参
+        SaveRecordButton(
+          kind: 'xuankong',
+          title: _recordTitle,
+          summary: _recordSummary,
+          params: _recordParams(),
         ),
       ],
     );
   }
 
   Widget _modeSwitch() {
-    Widget item(_Mode mode, String label) {
+    Widget item(XuankongMode mode, String label) {
       final active = _mode == mode;
       return Expanded(
         child: GestureDetector(
@@ -311,8 +482,8 @@ class _XuankongPageState extends State<XuankongPage> {
       ),
       child: Row(
         children: [
-          item(_Mode.month, '月盘'),
-          item(_Mode.house, '宅运盘'),
+          item(XuankongMode.month, '月盘'),
+          item(XuankongMode.house, '宅运盘'),
         ],
       ),
     );
@@ -846,8 +1017,10 @@ class _XuankongPageState extends State<XuankongPage> {
                   children: [
                     Text('$_buildYear 年', style: AppText.cardTitle),
                     const SizedBox(height: 2),
-                    const Text(
-                      '按建宅 / 入宅年份自动定运（三元九运每运二十年）',
+                    Text(
+                      _yearFromHouse
+                          ? '来自房屋档案的建宅年份（三元九运每运二十年）'
+                          : '手动指定的建宅 / 入宅年份（三元九运每运二十年）',
                       style: AppText.label11,
                     ),
                   ],
@@ -862,7 +1035,10 @@ class _XuankongPageState extends State<XuankongPage> {
             onTap: _buildYear == DateTime.now().year
                 ? null
                 : () {
-                    setState(() => _buildYear = DateTime.now().year);
+                    setState(() {
+                      _buildYear = DateTime.now().year;
+                      _yearFromHouse = false;
+                    });
                     _loadHouse();
                   },
             child: Text(
