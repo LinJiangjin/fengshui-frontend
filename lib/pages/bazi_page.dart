@@ -74,8 +74,11 @@ class _BaziPageState extends State<BaziPage> {
   ZiweiChart? _ziwei;
   String? _ziweiError;
 
-  /// 流年是否展开全部十年（默认只展示最近三年）
+  /// 紫微流年是否展开全部十年（默认只展示最近三年）
   bool _yearsExpanded = false;
+
+  /// 八字流年是否展开全部十二年（默认只展示最近三年）
+  bool _baziYearsExpanded = false;
 
   /// 紫微卡片的「怎么看这张盘」术语表是否展开（默认收起，不挡正文）
   bool _guideExpanded = false;
@@ -372,6 +375,14 @@ class _BaziPageState extends State<BaziPage> {
                       _elementCard(profile),
                       const SizedBox(height: AppDimens.gapL),
                       _fortuneCard(profile),
+                      if (profile.daYun != null) ...[
+                        const SizedBox(height: AppDimens.gapL),
+                        _daYunCard(profile.daYun!),
+                      ],
+                      if (profile.years.isNotEmpty) ...[
+                        const SizedBox(height: AppDimens.gapL),
+                        _baziYearsCard(profile.years),
+                      ],
                       const SizedBox(height: AppDimens.gapL),
                       _ziweiCard(),
                     ],
@@ -781,6 +792,274 @@ class _BaziPageState extends State<BaziPage> {
           _godRow('忌 神', profile.unfavorable),
         ],
       ),
+    );
+  }
+
+  // ------------------------------------------------------- 八字 · 大运
+  /// 大运：起运说明 + 八步运程（当前步高亮）
+  ///
+  /// 大运是子平法里唯一的时间轴，十年一换。这里刻意**只给当前步展开白话**，
+  /// 八步全展开会变成长文，反而看不出「我在哪一步」。
+  Widget _daYunCard(BaziDaYun d) {
+    return Container(
+      padding: const EdgeInsets.all(AppDimens.gapXL),
+      decoration: appCard(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('大运 · 十年一程', style: AppText.cardTitle),
+              const SizedBox(width: AppDimens.gapM),
+              Expanded(
+                child: Text(
+                  '${d.forward ? '顺行' : '逆行'} · ${d.startText}',
+                  textAlign: TextAlign.right,
+                  style: AppText.label11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppDimens.gapM),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppDimens.gapM),
+            decoration: BoxDecoration(
+              color: AppColors.primarySoftBg,
+              borderRadius: BorderRadius.circular(AppDimens.rS),
+            ),
+            child: Text(
+              d.plain,
+              style: AppText.body12.copyWith(color: AppColors.ink),
+            ),
+          ),
+          const SizedBox(height: AppDimens.gapL),
+          ...d.steps.map(_daYunStepRow),
+          const SizedBox(height: AppDimens.gapM),
+          Text(
+            d.basis,
+            style: AppText.label11.copyWith(color: AppColors.muted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _daYunStepRow(BaziDaYunStep s) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppDimens.gapS),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppDimens.gapM,
+        vertical: AppDimens.gapS + 2,
+      ),
+      decoration: BoxDecoration(
+        color: s.isCurrent ? AppColors.primarySoft : AppColors.iconBg,
+        borderRadius: BorderRadius.circular(AppDimens.rS),
+        border: Border.all(
+          color: s.isCurrent ? AppColors.primary : AppColors.cardBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 38,
+                child: Text(
+                  '第${s.index + 1}步',
+                  style: AppText.label11.copyWith(
+                    color: s.isCurrent ? AppColors.primary : AppColors.muted,
+                  ),
+                ),
+              ),
+              Text(
+                s.ganZhi,
+                style: AppText.medium13.copyWith(
+                  color: s.isCurrent ? AppColors.primary : AppColors.ink,
+                ),
+              ),
+              const SizedBox(width: AppDimens.gapS),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(s.shiShen, style: AppText.label11),
+              ),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('${s.fromAge}-${s.toAge} 岁', style: AppText.label11),
+                  Text(s.yearRange, style: AppText.label11),
+                ],
+              ),
+            ],
+          ),
+          if (s.isCurrent && s.plain.isNotEmpty) ...[
+            const SizedBox(height: AppDimens.gapS),
+            Text(s.plain, style: AppText.body12),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------- 八字 · 流年
+  /// 流年：逐年主题 + 宜动宜守（默认展示最近三年）
+  Widget _baziYearsCard(List<BaziYear> years) {
+    final shown = _baziYearsExpanded ? years : years.take(3).toList();
+    return Container(
+      padding: const EdgeInsets.all(AppDimens.gapXL),
+      decoration: appCard(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('流年 · 逐年', style: AppText.cardTitle),
+              const SizedBox(width: AppDimens.gapM),
+              Expanded(
+                child: Text(
+                  '自今年起 ${years.length} 年',
+                  textAlign: TextAlign.right,
+                  style: AppText.label11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppDimens.gapS),
+          ...shown.map(_baziYearBlock),
+          if (years.length > 3) ...[
+            const SizedBox(height: AppDimens.gapXS),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () =>
+                  setState(() => _baziYearsExpanded = !_baziYearsExpanded),
+              child: Row(
+                children: [
+                  Text(
+                    _baziYearsExpanded
+                        ? '收起'
+                        : '展开其余 ${years.length - 3} 年',
+                    style: AppText.medium12.copyWith(color: AppColors.primary),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _baziYearsExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _baziYearBlock(BaziYear y) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppDimens.gapS),
+      padding: const EdgeInsets.all(AppDimens.gapM),
+      decoration: BoxDecoration(
+        color: AppColors.iconBg,
+        borderRadius: BorderRadius.circular(AppDimens.rS),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('${y.year}', style: AppText.medium13),
+              const SizedBox(width: AppDimens.gapS),
+              Text('${y.ganZhi}年', style: AppText.label11),
+              const SizedBox(width: AppDimens.gapS),
+              Text('${y.age}岁', style: AppText.label11),
+              const Spacer(),
+              _stanceChip(y.stance),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // 白话导语替代行话副标题，与紫微流年保持同一种排法
+          Text(y.plain, style: AppText.label11),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: AppDimens.gapS,
+            runSpacing: 4,
+            children: [
+              _tag(y.daYunText, AppColors.goldSoftBg, AppColors.goldDeep),
+              if (y.isDaYunSwitch)
+                _tag('换运年', AppColors.primarySoft, AppColors.primary),
+              if (y.focus.isNotEmpty)
+                _tag('重点 ${y.focus}', AppColors.card, AppColors.body),
+            ],
+          ),
+          if (y.tianKeDiChong) ...[
+            const SizedBox(height: AppDimens.gapS),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppDimens.gapM,
+                vertical: AppDimens.gapS,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.dangerSoftBg,
+                borderRadius: BorderRadius.circular(AppDimens.rS),
+              ),
+              child: Text(
+                '这一年与日柱天克地冲，是变动最集中的年份，宜守不宜攻。',
+                style: AppText.body12.copyWith(color: AppColors.dangerDeep),
+              ),
+            ),
+          ],
+          if (y.relations.isNotEmpty) ...[
+            const SizedBox(height: AppDimens.gapS),
+            Wrap(
+              spacing: AppDimens.gapS,
+              runSpacing: 4,
+              children: y.relations
+                  .map((r) => _tag(
+                        r.label,
+                        r.kind == '冲'
+                            ? AppColors.dangerSoftBg
+                            : AppColors.card,
+                        r.kind == '冲' ? AppColors.dangerDeep : AppColors.body,
+                      ))
+                  .toList(),
+            ),
+          ],
+          const SizedBox(height: AppDimens.gapS),
+          ...y.points.map(
+            (p) => Padding(
+              padding: const EdgeInsets.only(bottom: AppDimens.gapXS),
+              child: Text(p, style: AppText.body12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 小标签：底色 + 字色
+  Widget _tag(String text, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(text, style: AppText.label11.copyWith(color: fg)),
     );
   }
 

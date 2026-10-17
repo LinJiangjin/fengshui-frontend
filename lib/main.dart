@@ -8,10 +8,13 @@ import 'pages/almanac_page.dart';
 import 'pages/bazi_page.dart';
 import 'pages/bazhai_page.dart';
 import 'pages/compass_page.dart';
+import 'pages/divination_page.dart';
 import 'pages/home_page.dart';
 import 'pages/house_page.dart';
 import 'pages/layout_page.dart';
 import 'pages/library_page.dart';
+import 'pages/marriage_page.dart';
+import 'pages/phone_energy_page.dart';
 import 'pages/login_page.dart';
 import 'pages/report_page.dart';
 import 'pages/xuankong_page.dart';
@@ -22,6 +25,7 @@ import 'services/compass_service.dart';
 import 'services/house_store.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
+import 'widgets/account_sheet.dart';
 import 'widgets/app_tab_bar.dart';
 
 Future<void> main() async {
@@ -442,6 +446,31 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   /// 与黄历一样是纯计算接口，不做前置校验；但已实测坐向的房屋会被带过去
   /// 作为宅运盘的坐向来源（比手选卦准，还能提示兼向）。
   /// 未测量时页面内提供「去测量坐向」的引导，走 onOpenCompass 回到罗盘 tab。
+  /// 打开问卦（六爻 / 梅花易数）。
+  ///
+  /// 纯计算接口，不需要登录，也不依赖房屋或命理档案。
+  /// 起卦在页面内完成（摇铜钱 / 取数），服务端只做确定性装卦与解读。
+  Future<void> _openDivination() async {
+    await Navigator.of(context)
+        .push<void>(_page(const DivinationPage()));
+  }
+
+  /// 打开号码八星（数字能量）。
+  ///
+  /// 纯计算接口。号码属个人信息：响应与错误文案里只有脱敏形式。
+  /// 这是民俗说法，页面顶部会固定展示性质声明。
+  Future<void> _openPhoneEnergy() async {
+    await Navigator.of(context)
+        .push<void>(_page(const PhoneEnergyPage()));
+  }
+
+  /// 打开合婚配对（生肖 / 八字）。
+  ///
+  /// 纯计算接口，不依赖房屋与命理档案，也不需要登录。
+  Future<void> _openMarriage() async {
+    await Navigator.of(context).push<void>(_page(const MarriagePage()));
+  }
+
   Future<void> _openXuankong() async {
     await Navigator.of(context).push<void>(_page(XuankongPage(
       house: _house,
@@ -551,6 +580,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           case 6:
             _openXuankong();
             break;
+          case 7:
+            _openDivination();
+            break;
+          case 8:
+            _openMarriage();
+            break;
+          case 9:
+            _openPhoneEnergy();
+            break;
         }
       },
     );
@@ -586,31 +624,52 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 40, color: AppColors.muted),
-                  const SizedBox(height: 16),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: AppColors.body),
+    // 空态页也要保留账户入口：否则没建档/没测量时用户没有地方退出登录
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppDimens.pagePadH, 8, AppDimens.pagePadH, 0),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: AccountAvatarButton(
+              user: _auth.user,
+              onLogout: _logout,
+              onDeleteAccount: _deleteAccount,
+            ),
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, size: 40, color: AppColors.muted),
+                        const SizedBox(height: 16),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 13, color: AppColors.body),
+                        ),
+                        const SizedBox(height: 16),
+                        OutlinedButton(onPressed: onTap, child: Text(btnText)),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  OutlinedButton(onPressed: onTap, child: Text(btnText)),
-                ],
+                ),
               ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

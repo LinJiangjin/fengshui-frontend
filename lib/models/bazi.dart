@@ -277,6 +277,277 @@ class BaziStrength {
       };
 }
 
+/// 一步大运（十年）
+///
+/// 后端字段名是 `from_age` / `to_age` 而不是 `from` / `to`——`from` 是
+/// Python 关键字，做不了 pydantic 字段名，两端都用带后缀的那套。
+class BaziDaYunStep {
+  BaziDaYunStep({
+    required this.index,
+    required this.ganZhi,
+    required this.gan,
+    required this.zhi,
+    required this.element,
+    required this.shiShen,
+    required this.naYin,
+    required this.field,
+    required this.fromAge,
+    required this.toAge,
+    required this.fromYear,
+    required this.toYear,
+    required this.isCurrent,
+    required this.plain,
+  });
+
+  final int index; // 第几步，0 起
+  final String ganZhi; // 甲申
+  final String gan;
+  final String zhi;
+  final String element; // 大运天干五行
+  final String shiShen; // 对日主的十神
+  final String naYin;
+  final String field; // 该十神对应的生活领域
+  final int fromAge;
+  final int toAge;
+  final int fromYear;
+  final int toYear;
+  final bool isCurrent;
+  final String plain; // 白话解释
+
+  factory BaziDaYunStep.fromJson(Map<String, dynamic> j) => BaziDaYunStep(
+        index: (j['index'] as num?)?.toInt() ?? 0,
+        ganZhi: j['gan_zhi'] ?? '',
+        gan: j['gan'] ?? '',
+        zhi: j['zhi'] ?? '',
+        element: j['element'] ?? '',
+        shiShen: j['shi_shen'] ?? '',
+        naYin: j['na_yin'] ?? '',
+        field: j['field'] ?? '',
+        fromAge: (j['from_age'] as num?)?.toInt() ?? 0,
+        toAge: (j['to_age'] as num?)?.toInt() ?? 0,
+        fromYear: (j['from_year'] as num?)?.toInt() ?? 0,
+        toYear: (j['to_year'] as num?)?.toInt() ?? 0,
+        isCurrent: j['is_current'] ?? false,
+        plain: j['plain'] ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'index': index,
+        'gan_zhi': ganZhi,
+        'gan': gan,
+        'zhi': zhi,
+        'element': element,
+        'shi_shen': shiShen,
+        'na_yin': naYin,
+        'field': field,
+        'from_age': fromAge,
+        'to_age': toAge,
+        'from_year': fromYear,
+        'to_year': toYear,
+        'is_current': isCurrent,
+        'plain': plain,
+      };
+
+  /// 卡片副标题：干支 + 十神 + 年龄段
+  String get caption => '$ganZhi · $shiShen · $fromAge-$toAge 岁';
+
+  /// 年份区间，如「2022-2031」
+  String get yearRange => '$fromYear-$toYear';
+}
+
+/// 大运：起运岁数 + 八步运程
+class BaziDaYun {
+  BaziDaYun({
+    required this.forward,
+    required this.jieName,
+    required this.jieAt,
+    required this.gapDays,
+    required this.startAge,
+    required this.startMonths,
+    required this.startDate,
+    required this.startYear,
+    required this.age,
+    required this.basis,
+    required this.plain,
+    required this.steps,
+    this.current,
+  });
+
+  final bool forward; // true 顺行（阳男阴女）
+  final String jieName; // 起运所数的那个节
+  final String jieAt;
+  final int gapDays;
+  final int startAge;
+  final int startMonths;
+  final String startDate;
+  final int startYear;
+  final int age; // 当前周岁
+  final String basis; // 起运推算依据
+  final String plain;
+  final List<BaziDaYunStep> steps;
+
+  /// 当前所走的一步；未入运时为 null
+  final BaziDaYunStep? current;
+
+  factory BaziDaYun.fromJson(Map<String, dynamic> j) => BaziDaYun(
+        forward: j['forward'] ?? true,
+        jieName: j['jie_name'] ?? '',
+        jieAt: j['jie_at'] ?? '',
+        gapDays: (j['gap_days'] as num?)?.toInt() ?? 0,
+        startAge: (j['start_age'] as num?)?.toInt() ?? 0,
+        startMonths: (j['start_months'] as num?)?.toInt() ?? 0,
+        startDate: j['start_date'] ?? '',
+        startYear: (j['start_year'] as num?)?.toInt() ?? 0,
+        age: (j['age'] as num?)?.toInt() ?? 0,
+        basis: j['basis'] ?? '',
+        plain: j['plain'] ?? '',
+        steps: (j['steps'] as List? ?? [])
+            .map((e) => BaziDaYunStep.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        current: j['current'] is Map
+            ? BaziDaYunStep.fromJson(j['current'] as Map<String, dynamic>)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'forward': forward,
+        'jie_name': jieName,
+        'jie_at': jieAt,
+        'gap_days': gapDays,
+        'start_age': startAge,
+        'start_months': startMonths,
+        'start_date': startDate,
+        'start_year': startYear,
+        'age': age,
+        'basis': basis,
+        'plain': plain,
+        'steps': steps.map((e) => e.toJson()).toList(),
+        'current': current?.toJson(),
+      };
+
+  /// 起运说明，如「3 岁 4 个月起运」
+  String get startText =>
+      startMonths > 0 ? '$startAge 岁 $startMonths 个月起运' : '$startAge 岁起运';
+}
+
+/// 流年地支与命局某一支的关系
+class BaziYearRelation {
+  BaziYearRelation({
+    required this.kind,
+    required this.palace,
+    required this.branch,
+    required this.plain,
+  });
+
+  final String kind; // 冲 / 刑 / 害 / 合
+  final String palace; // 命局中被牵动的那一柱
+  final String branch;
+  final String plain;
+
+  factory BaziYearRelation.fromJson(Map<String, dynamic> j) => BaziYearRelation(
+        kind: j['kind'] ?? '',
+        palace: j['palace'] ?? '',
+        branch: j['branch'] ?? '',
+        plain: j['plain'] ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'kind': kind,
+        'palace': palace,
+        'branch': branch,
+        'plain': plain,
+      };
+
+  /// 如「日柱（未）相合」
+  String get label => '$palace（$branch）相$kind';
+}
+
+/// 一年流年
+class BaziYear {
+  BaziYear({
+    required this.year,
+    required this.ganZhi,
+    required this.age,
+    required this.shiShen,
+    required this.shiShenPlain,
+    required this.isDaYunSwitch,
+    required this.relations,
+    required this.tianKeDiChong,
+    required this.favorableHit,
+    required this.unfavorableHit,
+    required this.focus,
+    required this.stance,
+    required this.plain,
+    required this.points,
+    this.daYun,
+  });
+
+  final int year;
+  final String ganZhi;
+  final int age;
+  final String shiShen;
+  final String shiShenPlain;
+  final bool isDaYunSwitch;
+  final List<BaziYearRelation> relations;
+  final bool tianKeDiChong;
+  final bool favorableHit;
+  final bool unfavorableHit;
+  final String focus;
+  final String stance; // 宜主动 / 宜守成 / 稳中求进
+  final String plain;
+  final List<String> points;
+
+  /// 当年所属大运的摘要；未入运时为 null
+  final Map<String, dynamic>? daYun;
+
+  factory BaziYear.fromJson(Map<String, dynamic> j) => BaziYear(
+        year: (j['year'] as num?)?.toInt() ?? 0,
+        ganZhi: j['gan_zhi'] ?? '',
+        age: (j['age'] as num?)?.toInt() ?? 0,
+        shiShen: j['shi_shen'] ?? '',
+        shiShenPlain: j['shi_shen_plain'] ?? '',
+        isDaYunSwitch: j['is_da_yun_switch'] ?? false,
+        relations: (j['relations'] as List? ?? [])
+            .map((e) => BaziYearRelation.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        tianKeDiChong: j['tian_ke_di_chong'] ?? false,
+        favorableHit: j['favorable_hit'] ?? false,
+        unfavorableHit: j['unfavorable_hit'] ?? false,
+        focus: j['focus'] ?? '',
+        stance: j['stance'] ?? '',
+        plain: j['plain'] ?? '',
+        points: (j['points'] as List? ?? []).map((e) => e.toString()).toList(),
+        daYun: j['da_yun'] is Map
+            ? Map<String, dynamic>.from(j['da_yun'] as Map)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'year': year,
+        'gan_zhi': ganZhi,
+        'age': age,
+        'shi_shen': shiShen,
+        'shi_shen_plain': shiShenPlain,
+        'is_da_yun_switch': isDaYunSwitch,
+        'relations': relations.map((e) => e.toJson()).toList(),
+        'tian_ke_di_chong': tianKeDiChong,
+        'favorable_hit': favorableHit,
+        'unfavorable_hit': unfavorableHit,
+        'focus': focus,
+        'stance': stance,
+        'plain': plain,
+        'points': points,
+        'da_yun': daYun,
+      };
+
+  /// 所属大运的显示名，如「第 4 步 癸巳」；未入运时为空
+  String get daYunText {
+    final d = daYun;
+    if (d == null) return '未入运';
+    return '第 ${(d['index'] as int? ?? 0) + 1} 步 ${d['gan_zhi']}';
+  }
+}
+
 /// 命理档案（与后端 /api/v1/bazi 的 data 字段一一对应）
 class BaziProfile {
   BaziProfile({
@@ -288,6 +559,8 @@ class BaziProfile {
     required this.strength,
     required this.favorable,
     required this.unfavorable,
+    this.daYun,
+    this.years = const [],
   });
 
   final BaziBirth birth;
@@ -298,6 +571,12 @@ class BaziProfile {
   final BaziStrength strength;
   final List<BaziGod> favorable;
   final List<BaziGod> unfavorable;
+
+  /// 大运（起运岁数 + 八步运程）；老版本后端不下发时为 null
+  final BaziDaYun? daYun;
+
+  /// 逐年流年（默认 12 年）
+  final List<BaziYear> years;
 
   factory BaziProfile.fromJson(Map<String, dynamic> j) => BaziProfile(
         birth: BaziBirth.fromJson(j['birth'] as Map<String, dynamic>? ?? {}),
@@ -318,6 +597,12 @@ class BaziProfile {
         unfavorable: (j['unfavorable'] as List? ?? [])
             .map((e) => BaziGod.fromJson(e as Map<String, dynamic>))
             .toList(),
+        daYun: j['da_yun'] is Map
+            ? BaziDaYun.fromJson(j['da_yun'] as Map<String, dynamic>)
+            : null,
+        years: (j['years'] as List? ?? [])
+            .map((e) => BaziYear.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -329,6 +614,8 @@ class BaziProfile {
         'strength': strength.toJson(),
         'favorable': favorable.map((e) => e.toJson()).toList(),
         'unfavorable': unfavorable.map((e) => e.toJson()).toList(),
+        'da_yun': daYun?.toJson(),
+        'years': years.map((e) => e.toJson()).toList(),
       };
 
   /// 八字四柱合写，如「戊辰 乙卯 丙寅 壬辰」

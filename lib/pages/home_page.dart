@@ -5,6 +5,7 @@ import '../models/user.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
+import '../widgets/account_sheet.dart';
 import '../widgets/app_icons.dart';
 
 /// S1 · 首页 · 今日风水
@@ -25,7 +26,7 @@ class HomePage extends StatelessWidget {
 
   /// 快捷入口回调，索引与 _quickActions 的顺序一致：
   /// 0 罗盘定向 / 1 八字排盘 / 2 八宅吉方 / 3 户型诊断 / 4 家具布局 /
-  /// 5 黄历择日 / 6 玄空飞星
+  /// 5 黄历择日 / 6 玄空飞星 / 7 问卦 / 8 合婚配对 / 9 号码八星
   final ValueChanged<int> onQuickAction;
   final VoidCallback onOpenHouses;
 
@@ -152,199 +153,12 @@ class HomePage extends StatelessWidget {
             ),
           ],
         ),
-        GestureDetector(
-          onTap: () => _openAccountSheet(context),
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: user != null ? AppColors.primarySoft : AppColors.card,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: user != null
-                    ? AppColors.primarySoftBorder
-                    : AppColors.cardBorder,
-                width: 1,
-              ),
-            ),
-            alignment: Alignment.center,
-            child: AppIcon(AppIconKind.user,
-                size: 24,
-                color: user != null ? AppColors.primary : AppColors.muted),
-          ),
+        AccountAvatarButton(
+          user: user,
+          onLogout: onLogout,
+          onDeleteAccount: onDeleteAccount,
         ),
       ],
-    );
-  }
-
-  /// 账户面板：退出登录 / 注销账号
-  ///
-  /// 返回值为动作标识：logout / delete / cancel（点蒙层或返回键为 null）。
-  Future<void> _openAccountSheet(BuildContext context) async {
-    final u = user;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: AppColors.track,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: AppColors.primarySoft,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: AppColors.primarySoftBorder),
-                    ),
-                    alignment: Alignment.center,
-                    child: const AppIcon(AppIconKind.user,
-                        size: 26, color: AppColors.primary),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          u == null || u.nickname.isEmpty
-                              ? '未设置昵称'
-                              : u.nickname,
-                          style: AppText.cardTitle,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          u?.phone ?? '未登录',
-                          style: AppText.label12,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(sheetContext).pop('logout'),
-                  icon: const Icon(Icons.logout, size: 18),
-                  label: Text('退出登录',
-                      style:
-                          AppText.medium15.copyWith(color: AppColors.danger)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
-                    side: const BorderSide(color: AppColors.dangerBorder),
-                    backgroundColor: AppColors.dangerSoftBg,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 48,
-                child: TextButton(
-                  onPressed: () => Navigator.of(sheetContext).pop('cancel'),
-                  child: Text('取消',
-                      style: AppText.medium15.copyWith(color: AppColors.body)),
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Divider(height: 1, color: AppColors.divider),
-              const SizedBox(height: 6),
-              // 注销入口：合规要求必须能被找到，但视觉上弱化，避免误点
-              TextButton(
-                onPressed: () => Navigator.of(sheetContext).pop('delete'),
-                child: Text('注销账号',
-                    style: AppText.medium13.copyWith(color: AppColors.muted)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    // 面板关闭后 context 才可用：跨过 await 必须重新确认宿主还在
-    if (!context.mounted) return;
-    if (action == 'logout') {
-      onLogout();
-    } else if (action == 'delete') {
-      await _confirmDeleteAccount(context);
-    }
-  }
-
-  /// 注销账号：不可恢复，先把后果逐条讲清楚再执行。
-  ///
-  /// 刻意做成两段式确认（面板 -> 对话框），并在对话框里逐条列出将被删除的数据、
-  /// 说明手机会被释放，避免用户在不知情的情况下销毁自己的档案。
-  Future<void> _confirmDeleteAccount(BuildContext context) async {
-    final handler = onDeleteAccount;
-    if (handler == null) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppDimens.rXL),
-        ),
-        title: const Text('注销账号', style: AppText.pageTitle),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('注销后下列数据将被永久删除，无法恢复：', style: AppText.body13),
-            SizedBox(height: 10),
-            Text(
-              '· 账号与登录信息\n· 全部房屋档案与坐向数据\n· 命理档案（出生信息）',
-              style: AppText.body13,
-            ),
-            SizedBox(height: 12),
-            Text('该手机号会被释放，你可以重新注册，但历史数据不会保留。',
-                style: AppText.body12),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text('再想想',
-                style: AppText.medium15.copyWith(color: AppColors.body)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('确认注销',
-                style: AppText.medium15.copyWith(color: AppColors.danger)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-
-    final error = await handler();
-    // 成功时 AuthGate 已切回登录页，本页 context 多半已失效：先判存活再提示
-    if (!context.mounted) return;
-    if (error == null) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(error), backgroundColor: AppColors.danger),
     );
   }
 
@@ -594,7 +408,11 @@ class HomePage extends StatelessWidget {
       (AppIconKind.plan, '家具布局'),
       (AppIconKind.calendar, '黄历择日'),
       (AppIconKind.flyingStar, '玄空飞星'),
+      (AppIconKind.hexagram, '问卦'),
+      (AppIconKind.heart, '合婚配对'),
+      (AppIconKind.search, '号码八星'),
     ];
+    // 10 个入口 ÷ 4 = 三行（4+4+2）；用 3 会变成四行且末行只剩一个
     const perRow = 4;
     final rows = <Widget>[];
     for (var start = 0; start < items.length; start += perRow) {

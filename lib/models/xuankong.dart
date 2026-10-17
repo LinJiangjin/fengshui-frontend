@@ -188,6 +188,64 @@ class XuankongStarState {
 }
 
 /// 宅运盘的一宫：山星 / 运星 / 向星三盘叠加。
+/// 山星与向星同宫的「双星组合」判词。
+///
+/// 与宫位的 [XuankongHousePalace.level] 是两个维度：
+/// `level` 说这两颗星**得不得时**（旺衰），`pair` 说它们凑在一起**出什么事**。
+///
+/// 判词分两层，由后端的 `source` 标明走了哪一层：
+/// * 有赋文的走经典层（紫白诀 / 玄空秘旨 / 河图生成数）；
+/// * 没有赋文的只标「五行生克」，文案由五行生克 + 当令与否推出，不编兆应。
+class XuankongPair {
+  const XuankongPair({
+    this.key = '',
+    this.shanStar = 0,
+    this.xiangStar = 0,
+    this.name = '',
+    this.source = '',
+    this.wuxing = '',
+    this.timing = '',
+    this.nature = '',
+    this.verdict = '',
+    this.level = '',
+    this.advice = '',
+  });
+
+  factory XuankongPair.fromJson(Map<String, dynamic> j) => XuankongPair(
+        key: j['key']?.toString() ?? '',
+        shanStar: _int(j['shan_star']),
+        xiangStar: _int(j['xiang_star']),
+        name: j['name']?.toString() ?? '',
+        source: j['source']?.toString() ?? '',
+        wuxing: j['wuxing']?.toString() ?? '',
+        timing: j['timing']?.toString() ?? '',
+        nature: j['nature']?.toString() ?? '',
+        verdict: j['verdict']?.toString() ?? '',
+        level: j['level']?.toString() ?? '',
+        advice: j['advice']?.toString() ?? '',
+      );
+
+  /// 组合编号，如「25」
+  final String key;
+  final int shanStar;
+  final int xiangStar;
+
+  /// 组合名，如「二五交加」；无赋文时为两星名合写
+  final String name;
+
+  /// 出处：紫白诀 / 玄空秘旨 / 河图生成数 / 五行生克
+  final String source;
+  final String wuxing;
+  final String timing;
+  final String nature;
+  final String verdict;
+  final String level;
+  final String advice;
+
+  /// 是否有古典赋文出处（否则只是五行生克推导）
+  bool get hasClassicSource => source != '五行生克' && source.isNotEmpty;
+}
+
 class XuankongHousePalace {
   const XuankongHousePalace({
     this.luoshu = 0,
@@ -205,6 +263,7 @@ class XuankongHousePalace {
     this.yunState = const XuankongStarState(),
     this.level = '',
     this.role = '',
+    this.pair,
     this.hasLostWuhuang = false,
     this.isSit = false,
     this.isFace = false,
@@ -227,6 +286,9 @@ class XuankongHousePalace {
         yunState: _state(j['yun_state']),
         level: j['level']?.toString() ?? '',
         role: j['role']?.toString() ?? '',
+        pair: j['pair'] is Map
+            ? XuankongPair.fromJson(j['pair'] as Map<String, dynamic>)
+            : null,
         hasLostWuhuang: j['has_lost_wuhuang'] == true,
         isSit: j['is_sit'] == true,
         isFace: j['is_face'] == true,
@@ -258,6 +320,9 @@ class XuankongHousePalace {
 
   /// 本宫宜作何用
   final String role;
+
+  /// 山星与向星的双星组合判词（与 level 是两个维度）
+  final XuankongPair? pair;
 
   /// 本宫有失运五黄
   final bool hasLostWuhuang;

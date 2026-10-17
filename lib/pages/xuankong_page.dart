@@ -1473,7 +1473,9 @@ class _XuankongPageState extends State<XuankongPage> {
           const SizedBox(height: 6),
           const Text(
             '按吉凶档位排序：从旺到凶，先看该用的方位，再看该避的方位。'
-            '中宫另述，不参与外围吉凶排序。',
+            '中宫另述，不参与外围吉凶排序。\n'
+            '每宫分两行：先看这宫宜作何用（按山向星旺衰），'
+            '再看山向两星凑在一起出什么事（双星组合）。',
             style: AppText.label11,
           ),
           const SizedBox(height: 12),
@@ -1548,6 +1550,81 @@ class _XuankongPageState extends State<XuankongPage> {
             padding: const EdgeInsets.only(left: 12),
             child: Text(p.role, style: AppText.body12),
           ),
+          if (p.pair != null) ...[
+            const SizedBox(height: 6),
+            _pairBlock(p.pair!),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 双星组合：山向两星同宫的判词。
+  ///
+  /// 只在这一块**说明出处**——有古典赋文的（紫白诀 / 玄空秘旨）与只按五行
+  /// 生克推出来的，对用户可信度不同，不能混在一处说。
+  Widget _pairBlock(XuankongPair pair) {
+    final fg = AppColors.palaceFg(pair.level);
+    final showAdvice = pair.level == '煞' || pair.level == '大凶';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: AppColors.palaceBg(pair.level),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              Text(
+                '「${pair.name}」',
+                style: AppText.medium12.copyWith(color: fg),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '${pair.source} · ${pair.timing}',
+                  style: AppText.label11.copyWith(fontSize: 10),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  pair.level,
+                  style: AppText.medium11.copyWith(fontSize: 10, color: fg),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            pair.nature,
+            style: AppText.body12.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 2),
+          Text(pair.verdict, style: AppText.body12),
+          // 建议只在需要动手的时候给，吉宫不必啰嗦
+          if (showAdvice && pair.advice.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              '宜：${pair.advice}',
+              style: AppText.body12.copyWith(color: fg),
+            ),
+          ],
         ],
       ),
     );

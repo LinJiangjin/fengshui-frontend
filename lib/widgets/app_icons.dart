@@ -27,6 +27,7 @@ enum AppIconKind {
   user,
   calendar,
   flyingStar,
+  hexagram,
 }
 
 class AppIcon extends StatelessWidget {
@@ -418,6 +419,20 @@ class _AppIconPainter extends CustomPainter {
         }
         canvas.drawCircle(const Offset(12, 12), 1.9, fill);
         canvas.drawCircle(const Offset(15.2, 8.8), 1.6, fill);
+        break;
+
+      // 问卦：三爻卦象（上下两段断开表示阴爻），与「玄空飞星」的九宫格区分
+      case AppIconKind.hexagram:
+        final bar = Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2
+          ..strokeCap = StrokeCap.round;
+        // 上爻（阳，整划）、中爻（阴，断）、下爻（阳，整划）
+        canvas.drawLine(const Offset(5, 6.5), const Offset(19, 6.5), bar);
+        canvas.drawLine(const Offset(5, 12), const Offset(10.4, 12), bar);
+        canvas.drawLine(const Offset(13.6, 12), const Offset(19, 12), bar);
+        canvas.drawLine(const Offset(5, 17.5), const Offset(19, 17.5), bar);
         break;
     }
     canvas.restore();

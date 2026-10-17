@@ -11,6 +11,9 @@ import '../models/diagnosis.dart';
 import '../models/house.dart';
 import '../models/legal.dart';
 import '../models/library.dart';
+import '../models/divination.dart';
+import '../models/marriage.dart';
+import '../models/phone_energy.dart';
 import '../models/xuankong.dart';
 import '../models/ziwei.dart';
 import '../models/user.dart';
@@ -605,6 +608,77 @@ class ApiClient {
         .timeout(const Duration(seconds: 12));
     return XuankongHouse.fromJson(
       _errorBodyOrData(res, fallback: '宅运盘加载失败，请稍后重试'),
+    );
+  }
+
+  /// 问卦：六爻纳甲 / 梅花易数。
+  ///
+  /// 起卦（铜钱摇卦、随手取数）在客户端完成，这里只把**结果**交给服务端
+  /// 做确定性装卦与解读——服务端不产生随机数，同一份入参必然同一份卦例。
+  Future<DivinationChart> fetchDivination({
+    required String mode,
+    List<int>? lines,
+    List<int>? numbers,
+    String? when,
+    String topic = '决策',
+    String gender = '男',
+    String question = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/divination');
+    final payload = <String, dynamic>{
+      'mode': mode,
+      'topic': topic,
+      'gender': gender,
+      'question': question,
+    };
+    if (lines != null) payload['lines'] = lines;
+    if (numbers != null) payload['numbers'] = numbers;
+    if (when != null) payload['when'] = when;
+
+    final res = await http
+        .post(uri, headers: _headers, body: jsonEncode(payload))
+        .timeout(const Duration(seconds: 12));
+    return DivinationChart.fromJson(
+      _errorBodyOrData(res, fallback: '起卦失败，请稍后重试'),
+    );
+  }
+
+  /// 合婚：生肖合婚（只要出生年）或八字合婚（完整出生信息）。
+  Future<MarriageResult> fetchMarriage({
+    required String mode,
+    required Map<String, dynamic> a,
+    required Map<String, dynamic> b,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/marriage');
+    final res = await http
+        .post(
+          uri,
+          headers: _headers,
+          body: jsonEncode({'mode': mode, 'a': a, 'b': b}),
+        )
+        .timeout(const Duration(seconds: 12));
+    return MarriageResult.fromJson(
+      _errorBodyOrData(res, fallback: '合婚计算失败，请稍后重试'),
+    );
+  }
+
+  /// 号码八星（数字能量）。
+  ///
+  /// 号码属个人信息：响应与错误文案里只有脱敏形式，原始号码不回显。
+  Future<PhoneEnergy> fetchPhoneEnergy({
+    required String number,
+    String kind = 'general',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/phone-energy');
+    final res = await http
+        .post(
+          uri,
+          headers: _headers,
+          body: jsonEncode({'number': number, 'kind': kind}),
+        )
+        .timeout(const Duration(seconds: 12));
+    return PhoneEnergy.fromJson(
+      _errorBodyOrData(res, fallback: '号码分析失败，请稍后重试'),
     );
   }
 
