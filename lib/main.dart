@@ -653,7 +653,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       declination: _house?.declination ?? kDefaultDeclination,
                       onConfirm: _diagnoseFrom,
                     ),
-                    const LibraryPage(),
+                    LibraryPage(
+                      store: _store,
+                      onOpenHouses: _openHouses,
+                    ),
                     const BaziPage(),
                   ],
                 ),

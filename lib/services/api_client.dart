@@ -71,13 +71,15 @@ class ApiClient {
 
   String get baseUrl => _override ?? kActiveApiBaseUrl;
 
-  /// 所有请求统一带 Content-Type + Bearer token（未登录时省略）
+  /// 所有请求统一带 Content-Type + 登录 token（未登录时省略）
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         if (kAuthToken != null && kAuthToken!.isNotEmpty)
-          // 注意：不要写成 'Bearer $kAuthToken!'——插值后紧跟的 ! 会被当作
-          // 普通字符拼进 token，后端验签会失败（踩过一次）。
-          'Authorization': 'Bearer ${kAuthToken!}',
+          // 走 X-Auth-Token 而不是 Authorization：托管平台的反向代理会给每个
+          // 请求注入自己的 Authorization 头，把这里传的值覆盖掉，服务端收不到
+          // 我们的 token（表现为刚登录就被判过期、反复跳回登录页）。
+          // 服务端 _token_from 会优先读这个头，Authorization 仅作兜底。
+          'X-Auth-Token': kAuthToken!,
       };
 
   /// 统一把 HTTP 层错误翻成 ApiException，401/403 交给上层分流

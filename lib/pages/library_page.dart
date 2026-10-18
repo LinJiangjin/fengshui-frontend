@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/library.dart';
 import '../services/api_client.dart';
+import '../services/house_store.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
 import '../theme/app_theme.dart';
@@ -18,7 +19,13 @@ import 'scheme_detail_page.dart';
 /// 2. 搜索框（匹配标题 / 风格 / 五行 / 面积）
 /// 3. 右上角筛选面板（面积区间 + 五行属性）
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key});
+  const LibraryPage({super.key, this.store, this.onOpenHouses});
+
+  /// 房屋档案：方案详情页要拿它把配色铺到户型宫位上
+  final HouseStore? store;
+
+  /// 「去建房屋档案」回调（由 main 注入）
+  final VoidCallback? onOpenHouses;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -88,7 +95,11 @@ class _LibraryPageState extends State<LibraryPage> {
           body: DesignCanvas(
             child: ColoredBox(
               color: AppColors.bg,
-              child: SchemeDetailPage(scheme: scheme),
+              child: SchemeDetailPage(
+              scheme: scheme,
+              store: widget.store,
+              onOpenHouses: widget.onOpenHouses,
+            ),
             ),
           ),
         ),

@@ -82,6 +82,13 @@ Future<String> _doResolve(Duration budget) async {
     if (lanHit != null) return _commit(prefs, lanHit);
   }
 
+  // Web 端兜底：本机探测不到后端时，按「前后端同域部署」处理——
+  // baseUrl 置空即走相对路径（/api/v1/...），浏览器自动请求页面所在域名。
+  // 本地 flutter run 时后端在本机，上面的 127.0.0.1 探测会命中，不会走到这里。
+  if (kIsWeb) {
+    kActiveApiBaseUrl = '';
+    return '';
+  }
   kActiveApiBaseUrl = kDefaultApiBaseUrl;
   return kDefaultApiBaseUrl;
 }

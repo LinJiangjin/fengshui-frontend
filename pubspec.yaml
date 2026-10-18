@@ -1,7 +1,7 @@
 name: fengshui_home
 description: 风水 × 装修 App · Flutter 端（MVP：定坐向 -> 出报告）
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

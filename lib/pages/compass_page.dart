@@ -156,7 +156,7 @@ class _CompassPageState extends State<CompassPage> {
             children: [
               SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(
-                    AppDimens.pagePadH, 4, AppDimens.pagePadH, 140),
+                    AppDimens.pagePadH, 4, AppDimens.pagePadH, 172),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -168,11 +168,34 @@ class _CompassPageState extends State<CompassPage> {
                   ],
                 ),
               ),
+              // 底部操作区：不透明底 + 上缘渐变。
+              // 之前只放了按钮本体，滚动内容会从按钮与下方文字之间的空隙穿过，
+              // 两层文字叠在一起像"糊住"了。
               Positioned(
-                left: AppDimens.pagePadH,
-                right: AppDimens.pagePadH,
-                bottom: 18,
-                child: _actions(),
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 22,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0x00F5F1E8), AppColors.bg],
+                        ),
+                      ),
+                    ),
+                    Container(
+                      color: AppColors.bg,
+                      padding: const EdgeInsets.fromLTRB(
+                          AppDimens.pagePadH, 2, AppDimens.pagePadH, 18),
+                      child: _actions(),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -206,56 +229,146 @@ class _CompassPageState extends State<CompassPage> {
       ),
       child: Column(
         children: [
-          CompassDial(heading: _trueNorth),
-          const SizedBox(height: 14),
+          // 罗盘 + 金色光晕
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 300,
+                height: 300,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x1ABE9351), Color(0x00BE9351)],
+                  ),
+                ),
+              ),
+              CompassDial(heading: _trueNorth),
+            ],
+          ),
+          const SizedBox(height: 12),
           // 读数
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 4,
+                height: 4,
+                decoration: const BoxDecoration(
+                  color: AppColors.gold,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('真北朝向', style: AppText.label11),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(_trueNorth.toStringAsFixed(0), style: AppText.degree),
+              const SizedBox(width: 2),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 7),
+                child: Text('°', style: AppText.degreeUnit),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(_orientation.summary, style: AppText.section),
+          const SizedBox(height: 16),
+          Container(height: 1, color: AppColors.divider),
+          const SizedBox(height: 16),
+          // 2 x 2 信息瓦片
           Column(
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(_trueNorth.toStringAsFixed(0), style: AppText.degree),
-                  const SizedBox(width: 2),
-                  const Text('°', style: AppText.degreeUnit),
+                  _tile(
+                    label: '二十四山',
+                    value: '${_orientation.mountain}山',
+                    sub: '${_orientation.trigram}宫 · ${_orientation.direction}',
+                  ),
+                  const SizedBox(width: 10),
+                  _tile(
+                    label: '宅卦',
+                    value: _orientation.houseType,
+                    sub: '向${_orientation.facingDirection}',
+                  ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(_orientation.summary, style: AppText.medium13),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _tile(
+                    label: '本地磁偏角',
+                    value: '${widget.declination.toStringAsFixed(1)}°',
+                    sub: '已自动校正',
+                  ),
+                  const SizedBox(width: 10),
+                  _tile(
+                    label: '测量精度',
+                    value: _accuracyValue(),
+                    sub: _accuracySub(),
+                    warning: _unavailable,
+                  ),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: 14),
-          Container(height: 1, color: AppColors.divider),
-          const SizedBox(height: 14),
-          _infoRow('二十四山', '${_orientation.mountain}山（${_orientation.trigram}宫）'),
-          const SizedBox(height: 14),
-          _infoRow('宅卦', '${_orientation.houseType} · 向${_orientation.facingDirection}'),
-          const SizedBox(height: 14),
-          _infoRow(
-            '本地磁偏角',
-            '${widget.declination.toStringAsFixed(1)}°（已自动校正）',
-          ),
-          const SizedBox(height: 14),
-          _infoRow('测量精度', _accuracyText()),
         ],
       ),
     );
   }
 
-  String _accuracyText() {
-    if (_manual) return '手动输入（${_trueNorth.toStringAsFixed(0)}°）';
-    if (_unavailable) return '未获取到传感器数据，请手动输入';
-    return widget.service.available ? '高（陀螺仪 + GPS）' : '手动模式（无磁力计）';
+  String _accuracyValue() {
+    if (_manual) return '手动输入';
+    if (_unavailable) return '传感器不可用';
+    if (widget.service.available) return '高';
+    return '检测中';
   }
 
-  Widget _infoRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(label, style: AppText.label12),
-        Text(value, style: AppText.medium13),
-      ],
+  String _accuracySub() {
+    if (_manual) return '${_trueNorth.toStringAsFixed(0)}°';
+    if (_unavailable) return '请手动输入坐向';
+    if (widget.service.available) return '陀螺仪 + GPS';
+    return '等待传感器读数';
+  }
+
+  Widget _tile({
+    required String label,
+    required String value,
+    required String sub,
+    bool warning = false,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: warning ? AppColors.dangerSoftBg : AppColors.iconBg,
+          borderRadius: BorderRadius.circular(AppDimens.rS),
+          border: Border.all(
+            color: warning ? AppColors.dangerBorder : AppColors.iconBorder,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: AppText.label11),
+            const SizedBox(height: 5),
+            Text(
+              value,
+              style: AppText.smallTitle.copyWith(
+                color: warning ? AppColors.dangerDeep : AppColors.ink,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(sub, style: AppText.label11),
+          ],
+        ),
+      ),
     );
   }
 
@@ -263,9 +376,9 @@ class _CompassPageState extends State<CompassPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.iconBg,
+        color: AppColors.tipBg,
         borderRadius: BorderRadius.circular(AppDimens.rM),
-        border: Border.all(color: AppColors.iconBorder, width: 1),
+        border: Border.all(color: AppColors.tipBorder, width: 1),
       ),
       child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
