@@ -142,7 +142,7 @@ class LayoutPage extends StatelessWidget {
   }
 
   // ------------------------------------------------------- 户型平面图
-  static const _wallColor = Color(0xFF7D6E58);
+  static const _wallColor = Color(0xFF5A6760);
 
   Widget _planCard(
     List<Palace?>? cells,
@@ -176,7 +176,7 @@ class LayoutPage extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF9F6F0),
+                  color: const Color(0xFFF2F5F0),
                   border: Border.all(color: _wallColor, width: 3),
                 ),
                 child: Stack(
@@ -307,7 +307,7 @@ class LayoutPage extends StatelessWidget {
     final palace = cells?[pos];
 
     final bg = palace == null
-        ? const Color(0xFFF9F6F0)
+        ? const Color(0xFFF2F5F0)
         : AppColors.palaceBg(palace.level).withAlpha(80);
 
     return Container(

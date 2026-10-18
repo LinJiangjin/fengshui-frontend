@@ -116,12 +116,12 @@ List<_DirCell> _buildCells(HouseProfile house, LibraryScheme scheme) {
 }
 
 // ------------------------------------------------------------------ 公共色
-const Color _wallInk = Color(0xFF3F4B44);
-const Color _cellBg = Color(0xFFF8F4EB);
-const Color _paper = Color(0xFFFCFAF5);
-const Color _wallFill = Color(0xFFF5EFE1);
-const Color _wallSide = Color(0xFFE7DECB);
-const Color _slab = Color(0xFFCFC5AE);
+const Color _wallInk = Color(0xFF38453F);
+const Color _cellBg = Color(0xFFF2F5F0);
+const Color _paper = Color(0xFFFBFCF9);
+const Color _wallFill = Color(0xFFF2F5EF);
+const Color _wallSide = Color(0xFFE2E8DD);
+const Color _slab = Color(0xFFC4CBBE);
 
 /// 色块上的文字颜色：深底用白字，浅底用墨字
 Color _onColor(Color c) {

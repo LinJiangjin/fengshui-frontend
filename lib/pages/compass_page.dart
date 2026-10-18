@@ -184,7 +184,7 @@ class _CompassPageState extends State<CompassPage> {
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [Color(0x00F5F1E8), AppColors.bg],
+                          colors: [Color(0x00E9EDE6), AppColors.bg],
                         ),
                       ),
                     ),
